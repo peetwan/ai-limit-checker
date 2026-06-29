@@ -35,8 +35,13 @@ from pathlib import Path
 from . import utils
 from .credentials import read_antigravity_credentials
 
-LOAD_URL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
-QUOTA_SUMMARY_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+# The Antigravity desktop app uses the "daily-" prefixed host, which returns
+# real-time quota data (including Gemini usage). The non-prefixed host returns
+# remainingFraction=1 for Gemini models (always 100% remaining), which is wrong.
+# Discovered by inspecting the agy language server logs (2026-06-29).
+_API_HOST = "https://daily-cloudcode-pa.googleapis.com"
+LOAD_URL = f"{_API_HOST}/v1internal:loadCodeAssist"
+QUOTA_SUMMARY_URL = f"{_API_HOST}/v1internal:retrieveUserQuotaSummary"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 USER_AGENT = "antigravity/windows/amd64"
 
