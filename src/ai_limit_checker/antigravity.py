@@ -272,7 +272,11 @@ def highest_used(groups: list[dict]) -> float | None:
 
 
 def check_antigravity(creds: dict | None = None) -> dict:
-    """Resolve credentials, query Cloud Code, and return the structured result."""
+    """Resolve credentials, query Cloud Code, and return the structured result.
+
+    If a 401 is encountered during the API calls, a token refresh is attempted
+    and the calls are retried once.
+    """
     if creds is None:
         creds = read_antigravity_credentials()
     if not creds:
@@ -282,10 +286,20 @@ def check_antigravity(creds: dict | None = None) -> dict:
         token = get_access_token(creds)
         if not token:
             return _empty("error", "could not obtain access token")
-        load = fetch_load_code_assist(token)
-        project_id = load.get("cloudaicompanionProject")
-        tier = _extract_tier(load)
-        groups = parse_quota_summary(fetch_quota_summary(token, project_id))
+        try:
+            load = fetch_load_code_assist(token)
+            project_id = load.get("cloudaicompanionProject")
+            tier = _extract_tier(load)
+            groups = parse_quota_summary(fetch_quota_summary(token, project_id))
+        except RuntimeError as exc:
+            # On 401, refresh the token and retry the full sequence once
+            if "HTTP 401" not in str(exc) or not creds.get("refresh_token"):
+                raise
+            token = refresh_access_token(creds["refresh_token"])
+            load = fetch_load_code_assist(token)
+            project_id = load.get("cloudaicompanionProject")
+            tier = _extract_tier(load)
+            groups = parse_quota_summary(fetch_quota_summary(token, project_id))
     except (RuntimeError, ValueError, KeyError, TypeError) as exc:
         return _empty("error", str(exc))
 

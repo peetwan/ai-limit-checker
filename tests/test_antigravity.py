@@ -249,3 +249,62 @@ def test_check_antigravity_error(monkeypatch):
     result = antigravity.check_antigravity(creds={"refresh_token": "RT"})
     assert result["status"] == "error"
     assert "503" in result["error"]
+
+
+def test_check_antigravity_401_triggers_refresh_then_retry(monkeypatch):
+    """On 401, the token should be refreshed and the request retried once."""
+    call_count = {"load": 0}
+
+    def flaky_load(token):
+        call_count["load"] += 1
+        if call_count["load"] == 1:
+            raise RuntimeError("loadCodeAssist HTTP 401")
+        return {
+            "cloudaicompanionProject": "my-project-12345",
+            "currentTier": {"id": "free-tier", "name": "Antigravity"},
+        }
+
+    monkeypatch.setattr(antigravity, "get_access_token", lambda creds: "OLD_TOKEN")
+    monkeypatch.setattr(antigravity, "fetch_load_code_assist", flaky_load)
+    monkeypatch.setattr(antigravity, "fetch_quota_summary", lambda token, project: QUOTA_SUMMARY)
+    monkeypatch.setattr(antigravity, "refresh_access_token", lambda rt: "NEW_TOKEN")
+
+    result = antigravity.check_antigravity(creds={"refresh_token": "RT"})
+    assert result["status"] == "ok"
+    assert call_count["load"] == 2
+
+
+def test_check_antigravity_401_no_refresh_token_returns_error(monkeypatch):
+    """Without a refresh token, 401 cannot be retried and becomes an error."""
+    def boom(token):
+        raise RuntimeError("loadCodeAssist HTTP 401")
+
+    monkeypatch.setattr(antigravity, "get_access_token", lambda creds: "TOKEN")
+    monkeypatch.setattr(antigravity, "fetch_load_code_assist", boom)
+    # creds has access_token but no refresh_token — should hit 401 and not retry
+    result = antigravity.check_antigravity(creds={"access_token": "AT"})
+    assert result["status"] == "error"
+    assert "401" in result["error"]
+
+
+def test_check_antigravity_non_401_error_not_retried(monkeypatch):
+    """Non-401 errors should not trigger a refresh/retry."""
+    call_count = {"load": 0, "refresh": 0}
+
+    def boom(token):
+        call_count["load"] += 1
+        raise RuntimeError("loadCodeAssist HTTP 500")
+
+    def no_refresh(rt):
+        call_count["refresh"] += 1
+        return "NEW"
+
+    monkeypatch.setattr(antigravity, "get_access_token", lambda creds: "TOKEN")
+    monkeypatch.setattr(antigravity, "fetch_load_code_assist", boom)
+    monkeypatch.setattr(antigravity, "refresh_access_token", no_refresh)
+
+    result = antigravity.check_antigravity(creds={"refresh_token": "RT"})
+    assert result["status"] == "error"
+    assert "500" in result["error"]
+    assert call_count["load"] == 1
+    assert call_count["refresh"] == 0

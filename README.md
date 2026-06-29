@@ -9,7 +9,7 @@
 [![PyPI](https://img.shields.io/pypi/v/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![Python](https://img.shields.io/pypi/pyversions/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-86%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-96%20passed-brightgreen.svg)](#testing)
 
 </div>
 
@@ -33,6 +33,7 @@
 
 - **Claude Code** — 5h & 7d usage windows with Sonnet/Opus breakdown
 - **Antigravity CLI** — Per-group (Gemini / Claude+GPT) weekly + five-hour limits
+- **Auto token refresh** — Both Claude and Antigravity OAuth tokens are automatically refreshed when expired (no more 401 errors)
 - **Watch mode** — Automatically detect when a 5h limit resets and notify you
 - **JSON output** — Structured output for AI agents (Hermes, Claude Code, etc.)
 - **Zero dependencies** — Pure Python stdlib, no pip conflicts
