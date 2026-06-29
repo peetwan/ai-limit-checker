@@ -195,6 +195,66 @@ def test_main_json_output(monkeypatch, tmp_path, capsys):
     assert parsed["antigravity"]["status"] == "ok"
 
 
+def test_parse_since_durations():
+    now = 1_700_000_000.0
+    assert cli._parse_since("30m", now=now) == now - 1800
+    assert cli._parse_since("2h", now=now) == now - 7200
+    assert cli._parse_since("1d", now=now) == now - 86400
+    assert cli._parse_since("90s", now=now) == now - 90
+
+
+def test_parse_since_epoch_and_invalid():
+    assert cli._parse_since("1700000000") == 1700000000.0
+    assert cli._parse_since("garbage") is None
+
+
+def test_main_history_routes_to_history(monkeypatch, capsys):
+    import ai_limit_checker.history as hist_mod
+
+    captured = {}
+
+    def fake_get_history(window_id=None, since=None, limit=None):
+        captured["window_id"] = window_id
+        captured["since"] = since
+        return {"claude_five_hour": [{"label": "Claude 5h", "used_pct": 30.0, "timestamp": 1.0}]}
+
+    monkeypatch.setattr(hist_mod, "get_history", fake_get_history)
+
+    rc = cli.main(["--history", "--window", "claude_five_hour", "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert captured["window_id"] == "claude_five_hour"
+    parsed = json.loads(out)
+    assert parsed["claude_five_hour"][0]["used_pct"] == 30.0
+
+
+def test_main_history_clear(monkeypatch, capsys):
+    import ai_limit_checker.history as hist_mod
+
+    monkeypatch.setattr(hist_mod, "clear_history", lambda window_id=None: 2)
+    rc = cli.main(["--history", "--clear"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Cleared history for 2 windows" in out
+
+
+def test_main_recommend_routes_to_recommend(monkeypatch, capsys):
+    import ai_limit_checker.recommend as rec_mod
+
+    fake_rec = {
+        "providers": {"claude": {}, "antigravity": {}},
+        "recommended_provider": "antigravity",
+        "reason": "x",
+        "alternatives": [],
+    }
+    monkeypatch.setattr(rec_mod, "get_recommendation", lambda fresh=True: fake_rec)
+    rc = cli.main(["--recommend", "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    parsed = json.loads(out)
+    assert parsed["recommended_provider"] == "antigravity"
+
+
 def test_main_claude_only(monkeypatch, tmp_path, capsys):
     _patch_cache(monkeypatch, tmp_path)
     monkeypatch.setattr(cli, "check_claude", lambda: SAMPLE["claude"])

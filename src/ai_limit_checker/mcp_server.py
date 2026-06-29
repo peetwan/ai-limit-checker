@@ -1,10 +1,12 @@
 """Minimal MCP (Model Context Protocol) server for ai-limit-checker.
 
-Exposes two tools that AI agents (Claude Code, Hermes, etc.) can call
+Exposes four tools that AI agents (Claude Code, Hermes, etc.) can call
 via the MCP JSON-RPC protocol over stdio:
 
 - ``get_limits`` — returns current usage data (JSON, same as ``aichecker --json``)
 - ``get_burn_rate`` — returns burn-rate analysis (velocity + ETA to 100%)
+- ``get_history`` — returns the stored usage snapshots (timeseries) for trend analysis
+- ``get_recommendation`` — recommends which provider to use next based on usage
 
 This is a lightweight stdio-only implementation with **zero external
 dependencies** — it speaks the MCP wire protocol (JSON-RPC 2.0) directly
@@ -31,7 +33,7 @@ from typing import Any
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "ai-limit-checker"
-SERVER_VERSION = "0.9.0"
+SERVER_VERSION = "0.10.0"
 
 _initialized = False
 
@@ -76,6 +78,51 @@ TOOLS: list[dict[str, Any]] = [
             "required": [],
         },
     },
+    {
+        "name": "get_history",
+        "description": (
+            "Retrieve usage history snapshots (timeseries) for trend analysis. Returns "
+            "per-window snapshot arrays with timestamps and used_pct."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "window_id": {
+                    "type": "string",
+                    "description": "Filter to a single window ID (e.g. 'claude_five_hour'). "
+                    "Omit for all windows.",
+                },
+                "since": {
+                    "type": "number",
+                    "description": "Unix timestamp. Only return snapshots after this time.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max snapshots per window (most recent N).",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_recommendation",
+        "description": (
+            "Analyze usage across all providers and recommend which to use next. "
+            "Considers 5h/7d windows, identifies bottlenecks, and suggests switching "
+            "when one provider is near its limit."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "fresh": {
+                    "type": "boolean",
+                    "description": "Gather fresh usage data before analyzing (default true).",
+                    "default": True,
+                },
+            },
+            "required": [],
+        },
+    },
 ]
 
 
@@ -98,9 +145,30 @@ def _handle_get_burn_rate(args: dict) -> dict:
     return {"result": rates}
 
 
+def _handle_get_history(args: dict) -> dict:
+    from .history import get_history
+
+    history = get_history(
+        window_id=args.get("window_id"),
+        since=args.get("since"),
+        limit=args.get("limit"),
+    )
+    return {"result": history}
+
+
+def _handle_get_recommendation(args: dict) -> dict:
+    from .recommend import get_recommendation
+
+    fresh = args.get("fresh", True)
+    rec = get_recommendation(fresh=fresh)
+    return {"result": rec}
+
+
 _TOOL_HANDLERS = {
     "get_limits": _handle_get_limits,
     "get_burn_rate": _handle_get_burn_rate,
+    "get_history": _handle_get_history,
+    "get_recommendation": _handle_get_recommendation,
 }
 
 
@@ -203,6 +271,23 @@ def _handle_request(msg: Any) -> dict[str, Any] | None:
             return _make_error(req_id, -32602, "no_cache must be a boolean")
         if (
             tool_name == "get_burn_rate"
+            and "fresh" in tool_args
+            and not isinstance(tool_args["fresh"], bool)
+        ):
+            return _make_error(req_id, -32602, "fresh must be a boolean")
+        if tool_name == "get_history":
+            if "window_id" in tool_args and not isinstance(tool_args["window_id"], str):
+                return _make_error(req_id, -32602, "window_id must be a string")
+            since = tool_args.get("since")
+            if "since" in tool_args and (
+                isinstance(since, bool) or not isinstance(since, (int, float))
+            ):
+                return _make_error(req_id, -32602, "since must be a number")
+            limit = tool_args.get("limit")
+            if "limit" in tool_args and (isinstance(limit, bool) or not isinstance(limit, int)):
+                return _make_error(req_id, -32602, "limit must be an integer")
+        if (
+            tool_name == "get_recommendation"
             and "fresh" in tool_args
             and not isinstance(tool_args["fresh"], bool)
         ):

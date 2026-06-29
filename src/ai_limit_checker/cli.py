@@ -233,6 +233,23 @@ def _short_status(d: dict) -> str:
 # --- entry point -----------------------------------------------------------
 
 
+def _parse_since(value: str, now: float | None = None) -> float | None:
+    """Convert a ``--since`` value into a unix-timestamp threshold.
+
+    Accepts a relative duration (``30m``, ``2h``, ``1d``) meaning "within the
+    last N", or a raw unix timestamp. Returns ``None`` if it can't be parsed.
+    """
+    cleaned = value.strip().lower()
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    reference = now if now is not None else time.time()
+    if cleaned and cleaned[-1] in units and cleaned[:-1].replace(".", "", 1).isdigit():
+        return reference - float(cleaned[:-1]) * units[cleaned[-1]]
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aichecker",
@@ -280,6 +297,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show burn-rate analysis: usage velocity and estimated time to limit.",
     )
     parser.add_argument(
+        "--history",
+        action="store_true",
+        help="Show stored usage history as a timeseries (per-window snapshots over time).",
+    )
+    parser.add_argument(
+        "--recommend",
+        action="store_true",
+        help="Recommend which provider to use next based on current usage.",
+    )
+    parser.add_argument(
+        "--window",
+        metavar="WINDOW",
+        help="With --history: filter to a single window id (e.g. claude_five_hour).",
+    )
+    parser.add_argument(
+        "--since",
+        metavar="DURATION",
+        help="With --history: only snapshots within a duration (30m, 2h, 1d) or after a "
+        "unix timestamp.",
+    )
+    parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="With --history: clear stored history (optionally scoped by --window) and exit.",
+    )
+    parser.add_argument(
         "--mcp",
         action="store_true",
         help="Start as an MCP server (JSON-RPC over stdio) for AI agent integration.",
@@ -316,6 +359,31 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(rates, indent=2))
         else:
             print(format_burn_rate(rates))
+        return 0
+
+    if args.history:
+        from .history import clear_history, format_history, get_history
+
+        if args.clear:
+            cleared = clear_history(window_id=args.window)
+            print(f"Cleared history for {cleared} window{'s' if cleared != 1 else ''}.")
+            return 0
+        since = _parse_since(args.since) if args.since else None
+        history = get_history(window_id=args.window, since=since)
+        if args.json:
+            print(json.dumps(history, indent=2))
+        else:
+            print(format_history(history, window_id=args.window))
+        return 0
+
+    if args.recommend:
+        from .recommend import format_recommendation, get_recommendation
+
+        rec = get_recommendation(fresh=not args.no_cache)
+        if args.json:
+            print(json.dumps(rec, indent=2))
+        else:
+            print(format_recommendation(rec))
         return 0
 
     both = not (args.claude or args.antigravity)

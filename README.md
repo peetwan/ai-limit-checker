@@ -9,7 +9,7 @@
 [![PyPI](https://img.shields.io/pypi/v/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![Python](https://img.shields.io/pypi/pyversions/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-96%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-169%20passed-brightgreen.svg)](#testing)
 
 </div>
 
@@ -23,6 +23,9 @@
 - [Watch Mode](#watch-mode)
 - [JSON Output](#json-output)
 - [Example Output](#example-output)
+- [History](#history)
+- [Recommendation](#recommendation)
+- [MCP Server](#mcp-server)
 - [How It Works](#how-it-works)
 - [Auto Token Refresh](#auto-token-refresh)
 - [Programmatic API](#programmatic-api)
@@ -36,6 +39,9 @@
 - **Antigravity CLI** — Per-group (Gemini / Claude+GPT) weekly + five-hour limits
 - **Auto token refresh** — Both Claude and Antigravity OAuth tokens are automatically refreshed when expired (no more 401 errors)
 - **Watch mode** — Automatically detect when a 5h limit resets and notify you
+- **History** — View stored usage as a per-window timeseries to spot trends
+- **Recommendation** — Get told which provider to use next based on current headroom
+- **MCP server** — Query usage from AI agents over the Model Context Protocol
 - **JSON output** — Structured output for AI agents (Hermes, Claude Code, etc.)
 - **Zero dependencies** — Pure Python stdlib, no pip conflicts
 - **Cross-platform** — Windows, macOS, and Linux
@@ -261,6 +267,70 @@ Claude: 1.0% (5h) ✅ | 56.0% (7d) ✅ | Antigravity: 95.0% used 🔴
 
 Status icons are based on **% used**: `✅` under 70%, `⚠️` 70–90%, `🔴` 90–100%, `❌` at/over 100% or on error.
 
+## History
+
+Every `aichecker` run (and every `--burn-rate` call) appends a usage snapshot to a rolling per-window history stored at `~/.cache/ai-limit-checker/burn_rate.json` (last 50 samples per window). `--history` renders that series as a timeseries, so you can see how a limit has trended over time rather than just its current value.
+
+```bash
+# Show all windows
+aichecker --history
+
+# Filter to a single window
+aichecker --history --window claude_five_hour
+
+# Only snapshots from the last hour (also accepts 30m, 2d, or a raw unix timestamp)
+aichecker --history --since 1h
+
+# Clear stored history (optionally scoped with --window)
+aichecker --history --clear
+```
+
+```
+Claude 5h  (3 samples)
+  2026-06-29 12:00  45.0% used
+  2026-06-29 12:30  52.0% used  (+7.0)
+  2026-06-29 13:00  58.0% used  (+6.0)
+```
+
+The value in parentheses is the change from the previous sample. History needs a few runs to build up — a single run records one sample per window. Add `--json` for the raw snapshot arrays.
+
+## Recommendation
+
+`--recommend` analyses current usage across both providers, identifies each one's bottleneck window, and tells you which to use next. It's built for agents that can switch backends: when Claude's 5h window is nearly spent, route the next task to Antigravity instead.
+
+```bash
+aichecker --recommend
+```
+
+```
+🎯 Recommendation: Switch to Antigravity
+
+  Claude Code: ⚠️ warning (79.0% used, 5h bottleneck, resets in 2h 15m)
+  Antigravity: ✅ safe (45.0% used, Gemini 5h bottleneck)
+
+Reason: Claude 5h at 79% (warning), Antigravity at 45% (safe). Switch to Antigravity.
+Alternatives: Claude (warning)
+```
+
+Status levels follow the usage thresholds — **safe** (< 70%), **warning** (70–90%), **critical** (≥ 90%), **exhausted** (≥ 100%). The recommended provider is the one with the most headroom; when both are comfortable it returns *either*, and when both are critical it returns *none* (wait for a reset). Add `--json` for the structured form.
+
+## MCP Server
+
+The package ships a zero-dependency [MCP](https://modelcontextprotocol.io) server (JSON-RPC over stdio), so AI agents (Claude Code, Hermes, etc.) can query usage directly instead of shelling out:
+
+```bash
+aichecker --mcp
+```
+
+It exposes four tools:
+
+| Tool                 | Purpose                                                      |
+| -------------------- | ----------------------------------------------------------- |
+| `get_limits`         | Current usage for both tools (same data as `--json`)        |
+| `get_burn_rate`      | Usage velocity and estimated time to each limit             |
+| `get_history`        | Stored snapshot timeseries for trend analysis               |
+| `get_recommendation` | Which provider to use next, with per-window bottleneck info |
+
 ## How It Works
 
 The library query flow integrates automatic token refresh to ensure checks never fail on expired credentials.
@@ -352,6 +422,13 @@ Options:
   --interval SECONDS  Watch mode: poll interval (default 300)
   --delay SECONDS     Watch mode: delay after reset before triggering (default 120)
   --dry-run           Watch mode: log without calling the CLIs
+  --burn-rate         Show usage velocity and estimated time to each limit
+  --history           Show stored usage history as a timeseries
+  --window WINDOW     With --history: filter to a single window id
+  --since DURATION    With --history: only snapshots within 30m/2h/1d or after an epoch
+  --clear             With --history: clear stored history and exit
+  --recommend         Recommend which provider to use next
+  --mcp               Start as an MCP server (JSON-RPC over stdio)
   --version           Show version
   -h, --help          Show help
 ```
@@ -378,12 +455,14 @@ python -m ai_limit_checker --json
 
 ### Testing
 
-The test suite uses `pytest` with 96 tests covering:
+The test suite uses `pytest` with 169 tests covering:
 
 - Credential parsing (Claude & Antigravity)
 - API response parsing and normalization
 - Output formatting (human, JSON, one-liner)
 - Watch mode: reset detection, state persistence, CLI ping triggering, deduplication, dry-run
+- Burn rate, history timeseries, and provider recommendation logic
+- MCP server: protocol compliance, tool dispatch, and argument validation
 - Edge cases: missing credentials, API errors, unmetered groups, zero-usage rounding
 
 ```bash

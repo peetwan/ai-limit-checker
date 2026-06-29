@@ -53,9 +53,9 @@ def test_tools_list() -> None:
     resp = mcp_server._handle_request(msg)
     assert resp is not None
     tools = resp["result"]["tools"]
-    assert len(tools) == 2
+    assert len(tools) == 4
     names = {t["name"] for t in tools}
-    assert names == {"get_limits", "get_burn_rate"}
+    assert names == {"get_limits", "get_burn_rate", "get_history", "get_recommendation"}
     # Each tool must have a name, description, and inputSchema
     for t in tools:
         assert "name" in t
@@ -141,6 +141,128 @@ def test_get_burn_rate_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     content = resp["result"]["content"]
     parsed = json.loads(content[0]["text"])
     assert parsed["claude_five_hour"]["velocity_pct_per_hour"] == 20.0
+
+
+def test_get_history_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The get_history tool should return per-window snapshot arrays as JSON."""
+    mcp_server._initialized = True
+    fake_history = {
+        "claude_five_hour": [
+            {"label": "Claude 5h", "used_pct": 30.0, "resets_at": None, "timestamp": 1.0},
+            {"label": "Claude 5h", "used_pct": 40.0, "resets_at": None, "timestamp": 2.0},
+        ],
+    }
+
+    def fake_get_history(
+        window_id: Any = None, since: Any = None, limit: Any = None
+    ) -> dict[str, Any]:
+        return fake_history
+
+    import ai_limit_checker.history as hist_mod
+
+    monkeypatch.setattr(hist_mod, "get_history", fake_get_history)
+
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {"name": "get_history", "arguments": {"window_id": "claude_five_hour"}},
+    }
+    resp = mcp_server._handle_request(msg)
+    assert resp is not None
+    content = resp["result"]["content"]
+    parsed = json.loads(content[0]["text"])
+    assert parsed["claude_five_hour"][1]["used_pct"] == 40.0
+
+
+def test_get_recommendation_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The get_recommendation tool should return the recommendation dict as JSON."""
+    mcp_server._initialized = True
+    fake_rec = {
+        "providers": {"claude": {}, "antigravity": {}},
+        "recommended_provider": "antigravity",
+        "reason": "Claude 5h at 92% (critical), Antigravity at 45% (safe). Switch to Antigravity.",
+        "alternatives": [],
+    }
+
+    def fake_get_recommendation(fresh: bool = True) -> dict[str, Any]:
+        return fake_rec
+
+    import ai_limit_checker.recommend as rec_mod
+
+    monkeypatch.setattr(rec_mod, "get_recommendation", fake_get_recommendation)
+
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {"name": "get_recommendation", "arguments": {"fresh": False}},
+    }
+    resp = mcp_server._handle_request(msg)
+    assert resp is not None
+    content = resp["result"]["content"]
+    parsed = json.loads(content[0]["text"])
+    assert parsed["recommended_provider"] == "antigravity"
+
+
+def test_get_history_invalid_window_id() -> None:
+    """get_history rejects a non-string window_id with -32602."""
+    mcp_server._initialized = True
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 22,
+        "method": "tools/call",
+        "params": {"name": "get_history", "arguments": {"window_id": 123}},
+    }
+    resp = mcp_server._handle_request(msg)
+    assert resp is not None
+    assert resp["error"]["code"] == -32602
+    assert "window_id must be a string" in resp["error"]["message"]
+
+
+def test_get_history_invalid_since() -> None:
+    """get_history rejects a non-numeric since with -32602."""
+    mcp_server._initialized = True
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 23,
+        "method": "tools/call",
+        "params": {"name": "get_history", "arguments": {"since": "soon"}},
+    }
+    resp = mcp_server._handle_request(msg)
+    assert resp is not None
+    assert resp["error"]["code"] == -32602
+    assert "since must be a number" in resp["error"]["message"]
+
+
+def test_get_history_invalid_limit() -> None:
+    """get_history rejects a non-integer limit with -32602."""
+    mcp_server._initialized = True
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 24,
+        "method": "tools/call",
+        "params": {"name": "get_history", "arguments": {"limit": "10"}},
+    }
+    resp = mcp_server._handle_request(msg)
+    assert resp is not None
+    assert resp["error"]["code"] == -32602
+    assert "limit must be an integer" in resp["error"]["message"]
+
+
+def test_get_recommendation_invalid_fresh() -> None:
+    """get_recommendation rejects a non-boolean fresh with -32602."""
+    mcp_server._initialized = True
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 25,
+        "method": "tools/call",
+        "params": {"name": "get_recommendation", "arguments": {"fresh": "yes"}},
+    }
+    resp = mcp_server._handle_request(msg)
+    assert resp is not None
+    assert resp["error"]["code"] == -32602
+    assert "fresh must be a boolean" in resp["error"]["message"]
 
 
 def test_make_response_structure() -> None:
