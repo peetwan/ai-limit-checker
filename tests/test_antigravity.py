@@ -276,6 +276,7 @@ def test_check_antigravity_401_triggers_refresh_then_retry(monkeypatch):
 
 def test_check_antigravity_401_no_refresh_token_returns_error(monkeypatch):
     """Without a refresh token, 401 cannot be retried and becomes an error."""
+
     def boom(token):
         raise RuntimeError("loadCodeAssist HTTP 401")
 

@@ -185,7 +185,12 @@ def test_get_recommendation_tool(monkeypatch: pytest.MonkeyPatch) -> None:
         "alternatives": [],
     }
 
-    def fake_get_recommendation(fresh: bool = True) -> dict[str, Any]:
+    called_args = []
+
+    def fake_get_recommendation(
+        fresh: bool = True, exclude_groups: tuple[str, ...] = ()
+    ) -> dict[str, Any]:
+        called_args.append((fresh, exclude_groups))
         return fake_rec
 
     import ai_limit_checker.recommend as rec_mod
@@ -196,13 +201,18 @@ def test_get_recommendation_tool(monkeypatch: pytest.MonkeyPatch) -> None:
         "jsonrpc": "2.0",
         "id": 21,
         "method": "tools/call",
-        "params": {"name": "get_recommendation", "arguments": {"fresh": False}},
+        "params": {
+            "name": "get_recommendation",
+            "arguments": {"fresh": False, "exclude_groups": ["Test Group"]},
+        },
     }
     resp = mcp_server._handle_request(msg)
     assert resp is not None
     content = resp["result"]["content"]
     parsed = json.loads(content[0]["text"])
     assert parsed["recommended_provider"] == "antigravity"
+    assert len(called_args) == 1
+    assert called_args[0] == (False, ("Test Group",))
 
 
 def test_get_history_invalid_window_id() -> None:
@@ -263,6 +273,21 @@ def test_get_recommendation_invalid_fresh() -> None:
     assert resp is not None
     assert resp["error"]["code"] == -32602
     assert "fresh must be a boolean" in resp["error"]["message"]
+
+
+def test_get_recommendation_invalid_exclude_groups() -> None:
+    """get_recommendation rejects a non-array exclude_groups with -32602."""
+    mcp_server._initialized = True
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 26,
+        "method": "tools/call",
+        "params": {"name": "get_recommendation", "arguments": {"exclude_groups": "not-an-array"}},
+    }
+    resp = mcp_server._handle_request(msg)
+    assert resp is not None
+    assert resp["error"]["code"] == -32602
+    assert "exclude_groups must be an array of strings" in resp["error"]["message"]
 
 
 def test_make_response_structure() -> None:

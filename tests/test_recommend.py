@@ -89,7 +89,7 @@ def test_recommend_claude_critical_switch_to_agy(monkeypatch):
     assert claude["status"] == "critical"
     assert claude["highest_used_pct"] == 92
     assert claude["bottleneck_window"] == "5h"
-    assert "Switch to Antigravity" in rec["reason"]
+    assert "Use Antigravity" in rec["reason"]
 
 
 def test_recommend_warning_prefers_safe(monkeypatch):
@@ -103,7 +103,9 @@ def test_recommend_warning_prefers_safe(monkeypatch):
 def test_recommend_both_warning_lower_used_wins(monkeypatch):
     _patch(monkeypatch, _claude(72, 60), _agy(85))
     rec = recommend.get_recommendation()
-    assert rec["recommended_provider"] == "claude"
+    # Scores are close so "either" is fine, but Claude should score higher due to more headroom
+    assert rec["recommended_provider"] == "either"
+    assert rec["providers"]["claude"]["score"] > rec["providers"]["antigravity"]["score"]
     assert rec["providers"]["claude"]["bottleneck_window"] == "5h"
 
 
@@ -137,7 +139,7 @@ def test_recommend_one_provider_errors(monkeypatch):
 
 def test_recommend_antigravity_bottleneck_group(monkeypatch):
     _patch(monkeypatch, _claude(10, 20), _agy(95, group="Claude and GPT models", window="weekly"))
-    rec = recommend.get_recommendation()
+    rec = recommend.get_recommendation(exclude_groups=())
     agy = rec["providers"]["antigravity"]
     assert agy["status"] == "critical"
     assert agy["bottleneck_group"] == "Claude and GPT models"
@@ -269,3 +271,174 @@ def test_recommend_per_window_status(monkeypatch):
     assert "7d: ✅ safe (50.0% used" in text
     assert "Gemini Five Hour Limit: ✅ safe (45.0% used" in text
     assert "Gemini Weekly Limit: ⚠️ warning (80.0% used" in text
+
+
+def test_exclude_groups(monkeypatch):
+    # Excludes "Claude and GPT models" by default, includes "Gemini Models"
+    _patch(
+        monkeypatch,
+        _claude(10, 20),
+        {
+            "status": "ok",
+            "groups": [
+                {
+                    "name": "Claude and GPT models",
+                    "buckets": [{"label": "Five Hour Limit", "window": "5h", "used_pct": 15.0}],
+                },
+                {
+                    "name": "Gemini Models",
+                    "buckets": [{"label": "Weekly Limit", "window": "weekly", "used_pct": 25.0}],
+                },
+            ],
+        },
+    )
+    rec = recommend.get_recommendation()
+    agy = rec["providers"]["antigravity"]
+    # "Claude and GPT models" should be excluded, so only 1 window from "Gemini Models"
+    assert len(agy["windows"]) == 1
+    assert agy["windows"][0]["group"] == "Gemini Models"
+
+
+def test_exclude_groups_custom(monkeypatch):
+    # Custom exclude_groups parameter works
+    _patch(
+        monkeypatch,
+        _claude(10, 20),
+        {
+            "status": "ok",
+            "groups": [
+                {
+                    "name": "Claude and GPT models",
+                    "buckets": [{"label": "Five Hour Limit", "window": "5h", "used_pct": 15.0}],
+                },
+                {
+                    "name": "Gemini Models",
+                    "buckets": [{"label": "Weekly Limit", "window": "weekly", "used_pct": 25.0}],
+                },
+            ],
+        },
+    )
+    rec = recommend.get_recommendation(exclude_groups=("Gemini Models",))
+    agy = rec["providers"]["antigravity"]
+    assert len(agy["windows"]) == 1
+    assert agy["windows"][0]["group"] == "Claude and GPT models"
+
+
+def test_exclude_groups_empty(monkeypatch):
+    # Passing exclude_groups=() keeps both
+    _patch(
+        monkeypatch,
+        _claude(10, 20),
+        {
+            "status": "ok",
+            "groups": [
+                {
+                    "name": "Claude and GPT models",
+                    "buckets": [{"label": "Five Hour Limit", "window": "5h", "used_pct": 15.0}],
+                },
+                {
+                    "name": "Gemini Models",
+                    "buckets": [{"label": "Weekly Limit", "window": "weekly", "used_pct": 25.0}],
+                },
+            ],
+        },
+    )
+    rec = recommend.get_recommendation(exclude_groups=())
+    agy = rec["providers"]["antigravity"]
+    assert len(agy["windows"]) == 2
+
+
+def test_scoring_severity():
+    assert recommend._score_severity("safe") == 100.0
+    assert recommend._score_severity("warning") == 50.0
+    assert recommend._score_severity("critical") == 15.0
+    assert recommend._score_severity("exhausted") == 0.0
+    assert recommend._score_severity("unknown") == 0.0
+
+
+def test_scoring_headroom():
+    # min remaining headroom
+    assert recommend._score_headroom([]) == 0.0
+    assert recommend._score_headroom([{"used_pct": 20.0}, {"used_pct": 40.0}]) == 60.0
+    assert recommend._score_headroom([{"used_pct": 95.0}]) == 5.0
+
+
+def test_scoring_reset_proximity():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 6, 29, 12, 0, 0, tzinfo=timezone.utc)
+
+    # 1. No windows/resets_at -> 30.0
+    assert recommend._score_reset_proximity({}, now=now) == 30.0
+    assert recommend._score_reset_proximity({"windows": []}, now=now) == 30.0
+
+    # 2. Worst window used < 70% -> 100.0 (safe)
+    info_safe = {"windows": [{"used_pct": 50.0, "resets_at": "2026-06-29T13:00:00Z"}]}
+    assert recommend._score_reset_proximity(info_safe, now=now) == 100.0
+
+    # 3. Worst window >= 70% and resets in < 1h -> 80.0
+    info_soon = {"windows": [{"used_pct": 80.0, "resets_at": "2026-06-29T12:30:00Z"}]}
+    assert recommend._score_reset_proximity(info_soon, now=now) == 80.0
+
+    # 4. Worst window >= 70% and resets in < 4h -> 60.0
+    info_4h = {"windows": [{"used_pct": 80.0, "resets_at": "2026-06-29T15:30:00Z"}]}
+    assert recommend._score_reset_proximity(info_4h, now=now) == 60.0
+
+    # 5. Worst window >= 70% and resets in < 12h -> 40.0
+    info_12h = {"windows": [{"used_pct": 80.0, "resets_at": "2026-06-29T23:30:00Z"}]}
+    assert recommend._score_reset_proximity(info_12h, now=now) == 40.0
+
+    # 6. Worst window >= 70% and resets in < 24h -> 20.0
+    info_24h = {"windows": [{"used_pct": 80.0, "resets_at": "2026-06-30T11:30:00Z"}]}
+    assert recommend._score_reset_proximity(info_24h, now=now) == 20.0
+
+    # 7. Worst window >= 70% and resets in > 24h -> 10.0
+    info_late = {"windows": [{"used_pct": 80.0, "resets_at": "2026-07-01T12:00:00Z"}]}
+    assert recommend._score_reset_proximity(info_late, now=now) == 10.0
+
+
+def test_scoring_burn_rate(monkeypatch):
+    import ai_limit_checker.burn_rate as br_mod
+
+    # 1. No data -> 50.0
+    def fake_load_history_empty():
+        return {}
+
+    monkeypatch.setattr(br_mod, "_load_history", fake_load_history_empty)
+    assert recommend._score_burn_rate("claude") == 50.0
+
+    # 2. Velocity <= 10%/h -> 40.0
+    def fake_load_history_10():
+        return {
+            "claude_five_hour": [
+                {"label": "Claude 5h", "used_pct": 10.0, "timestamp": 1000.0},
+                {"label": "Claude 5h", "used_pct": 20.0, "timestamp": 4600.0},
+            ]
+        }
+
+    monkeypatch.setattr(br_mod, "_load_history", fake_load_history_10)
+    assert recommend._score_burn_rate("claude") == 40.0
+
+
+def test_score_in_result(monkeypatch):
+    _patch(monkeypatch, _claude(30, 40), _agy(20))
+    rec = recommend.get_recommendation()
+    claude = rec["providers"]["claude"]
+    agy = rec["providers"]["antigravity"]
+
+    assert "score" in claude
+    assert "score_breakdown" in claude
+    assert "severity" in claude["score_breakdown"]
+    assert "headroom" in claude["score_breakdown"]
+    assert "reset_proximity" in claude["score_breakdown"]
+    assert "burn_rate" in claude["score_breakdown"]
+
+    assert "score" in agy
+    assert "score_breakdown" in agy
+
+
+def test_format_shows_score(monkeypatch):
+    _patch(monkeypatch, _claude(79, 50), _agy(45))
+    rec = recommend.get_recommendation()
+    text = recommend.format_recommendation(rec)
+    assert "— score: " in text

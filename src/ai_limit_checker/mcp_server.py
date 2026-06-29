@@ -119,6 +119,11 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "Gather fresh usage data before analyzing (default true).",
                     "default": True,
                 },
+                "exclude_groups": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Antigravity group names to exclude from analysis (default: ['Claude and GPT models']).",
+                },
             },
             "required": [],
         },
@@ -160,7 +165,11 @@ def _handle_get_recommendation(args: dict) -> dict:
     from .recommend import get_recommendation
 
     fresh = args.get("fresh", True)
-    rec = get_recommendation(fresh=fresh)
+    if "exclude_groups" in args:
+        exclude_groups = tuple(args["exclude_groups"])
+        rec = get_recommendation(fresh=fresh, exclude_groups=exclude_groups)
+    else:
+        rec = get_recommendation(fresh=fresh)
     return {"result": rec}
 
 
@@ -286,12 +295,13 @@ def _handle_request(msg: Any) -> dict[str, Any] | None:
             limit = tool_args.get("limit")
             if "limit" in tool_args and (isinstance(limit, bool) or not isinstance(limit, int)):
                 return _make_error(req_id, -32602, "limit must be an integer")
-        if (
-            tool_name == "get_recommendation"
-            and "fresh" in tool_args
-            and not isinstance(tool_args["fresh"], bool)
-        ):
-            return _make_error(req_id, -32602, "fresh must be a boolean")
+        if tool_name == "get_recommendation":
+            if "fresh" in tool_args and not isinstance(tool_args["fresh"], bool):
+                return _make_error(req_id, -32602, "fresh must be a boolean")
+            if "exclude_groups" in tool_args:
+                egs = tool_args["exclude_groups"]
+                if not isinstance(egs, list) or not all(isinstance(x, str) for x in egs):
+                    return _make_error(req_id, -32602, "exclude_groups must be an array of strings")
 
         try:
             output = handler(tool_args)

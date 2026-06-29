@@ -109,6 +109,7 @@ def test_check_claude_proactive_refresh_on_expired_token(monkeypatch):
 
 def test_check_claude_no_proactive_refresh_on_valid_token(monkeypatch):
     """A token that hasn't expired should not trigger a refresh."""
+
     def boom(rt):
         raise AssertionError("refresh must not be called for a valid token")
 
@@ -116,6 +117,7 @@ def test_check_claude_no_proactive_refresh_on_valid_token(monkeypatch):
     monkeypatch.setattr(utils, "http_json", lambda *a, **k: (200, SAMPLE_RESPONSE))
 
     import time as _time
+
     future_ms = int(_time.time() * 1000) + 3_600_000  # 1 hour from now
     valid_creds = {
         "accessToken": "AT",
@@ -154,6 +156,7 @@ def test_refresh_claude_token_ok(monkeypatch):
 def test_refresh_claude_token_failure(monkeypatch):
     monkeypatch.setattr(utils, "http_form", lambda *a, **k: (400, {"error": "invalid_grant"}))
     import pytest
+
     with pytest.raises(RuntimeError):
         claude.refresh_claude_token("RT")
 

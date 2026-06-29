@@ -9,7 +9,11 @@ SAMPLE_DATA = {
         "status": "ok",
         "five_hour": {"used_pct": 30.0, "remaining_pct": 70.0, "resets_at": "2026-06-29T20:00:00Z"},
         "seven_day": {"used_pct": 58.0, "remaining_pct": 42.0, "resets_at": "2026-07-02T22:00:00Z"},
-        "seven_day_sonnet": {"used_pct": 8.0, "remaining_pct": 92.0, "resets_at": "2026-07-02T22:00:00Z"},
+        "seven_day_sonnet": {
+            "used_pct": 8.0,
+            "remaining_pct": 92.0,
+            "resets_at": "2026-07-02T22:00:00Z",
+        },
     },
     "antigravity": {
         "status": "ok",
@@ -17,8 +21,18 @@ SAMPLE_DATA = {
             {
                 "name": "Gemini Models",
                 "buckets": [
-                    {"window": "weekly", "label": "Weekly Limit", "used_pct": 7.1, "resets_at": "2026-07-02T03:27:28Z"},
-                    {"window": "5h", "label": "Five Hour Limit", "used_pct": 6.5, "resets_at": "2026-06-29T11:31:58Z"},
+                    {
+                        "window": "weekly",
+                        "label": "Weekly Limit",
+                        "used_pct": 7.1,
+                        "resets_at": "2026-07-02T03:27:28Z",
+                    },
+                    {
+                        "window": "5h",
+                        "label": "Five Hour Limit",
+                        "used_pct": 6.5,
+                        "resets_at": "2026-06-29T11:31:58Z",
+                    },
                 ],
             },
         ],
@@ -64,7 +78,7 @@ def test_calculate_burn_rate_positive_velocity():
     history = {
         "claude_five_hour": [
             {"label": "Claude 5h", "used_pct": 20.0, "timestamp": now - 3600},  # 1h ago
-            {"label": "Claude 5h", "used_pct": 40.0, "timestamp": now},          # now
+            {"label": "Claude 5h", "used_pct": 40.0, "timestamp": now},  # now
         ],
     }
     rates = burn_rate.calculate_burn_rate(history)

@@ -296,7 +296,19 @@ The value in parentheses is the change from the previous sample. History needs a
 
 ## Recommendation
 
-`--recommend` analyses current usage across both providers, identifies each one's bottleneck window, and tells you which to use next. It's built for agents that can switch backends: when Claude's 5h window is nearly spent, route the next task to Antigravity instead.
+`--recommend` analyses current usage across both providers, computes a multi-factor score (0-100) for each, and recommends which to use next.
+
+### Scoring Criteria
+
+The 0-100 composite score is calculated using four weighted factors:
+- `Severity (35%)`: Safe (100), Warning (50), Critical (15), Exhausted (0), Unknown (0)
+- `Headroom (30%)`: Lowest remaining percentage across all limit windows
+- `Reset Proximity (20%)`: How soon the worst window resets (imminent resets score higher to encourage waiting/resuming soon)
+- `Burn Rate (15%)`: Real-time velocity from usage history (slower usage scores higher)
+
+### Exclude Groups
+
+By default, the `Claude and GPT models` group on Antigravity is excluded from analysis (since users usually have a separate direct Claude Code subscription). You can customize this or include all groups via the programmatic API or MCP server parameters.
 
 ```bash
 aichecker --recommend
@@ -305,14 +317,17 @@ aichecker --recommend
 ```
 🎯 Recommendation: Switch to Antigravity
 
-  Claude Code: ⚠️ warning (79.0% used, 5h bottleneck, resets in 2h 15m)
-  Antigravity: ✅ safe (45.0% used, Gemini 5h bottleneck)
+  Claude Code: ⚠️ warning (79.0% used, 5h bottleneck, resets in 2h 15m) — score: 52
+      5h: ⚠️ warning (79.0% used, resets in 2h 15m)
+      7d: ✅ safe (50.0% used, resets in 2d 9h)
+  Antigravity: ✅ safe (7.5% used, Gemini weekly bottleneck, resets in 2d 14h) — score: 88
+      Gemini Weekly Limit: ✅ safe (7.5% used, resets in 2d 14h)
+      Gemini Five Hour Limit: ✅ safe (0.0% used, resets in 4h 59m)
 
-Reason: Claude 5h at 79% (warning), Antigravity at 45% (safe). Switch to Antigravity.
-Alternatives: Claude (warning)
+Reason: Antigravity scores higher (88 vs 52). Claude is 36 points lower.
 ```
 
-Status levels follow the usage thresholds — **safe** (< 70%), **warning** (70–90%), **critical** (≥ 90%), **exhausted** (≥ 100%). The recommended provider is the one with the most headroom; when both are comfortable it returns *either*, and when both are critical it returns *none* (wait for a reset). Add `--json` for the structured form.
+The recommendation is based on a score difference threshold: when scores are within 10 points it returns *either*, otherwise it suggests the clear winner. If both are exhausted or unavailable, it returns *none*. Add `--json` for the structured form (which contains a detailed `score_breakdown`).
 
 ## MCP Server
 

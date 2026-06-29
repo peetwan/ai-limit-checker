@@ -367,9 +367,7 @@ def test_trigger_pings_different_tools():
             "tool": "antigravity",
         },
     }
-    results = watch.trigger_pings(
-        current, ["claude_5h", "agy_Gemini Models_5h"], dry_run=True
-    )
+    results = watch.trigger_pings(current, ["claude_5h", "agy_Gemini Models_5h"], dry_run=True)
     assert "dry-run" in results["Claude Code 5h"]
     assert "dry-run" in results["Antigravity Gemini 5h"]
 
