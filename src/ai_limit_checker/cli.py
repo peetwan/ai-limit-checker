@@ -14,10 +14,8 @@ from .claude import check_claude
 from .utils import (
     FAIL,
     OK,
-    format_pct,
     format_reset_in,
     status_icon,
-    status_icon_remaining,
 )
 
 BAR = "═" * 40
@@ -128,40 +126,44 @@ def _claude_section(c: dict) -> list[str]:
 
 
 def _antigravity_section(a: dict) -> list[str]:
-    tier = a.get("tier")
-    show_tier_in_title = bool(tier) and tier.lower() != "antigravity"
-    title = f"Antigravity CLI ({tier})" if show_tier_in_title else "Antigravity CLI"
-    out = [BAR, f"  {title}", BAR]
+    out = [BAR, "  Antigravity CLI", BAR]
     if a.get("status") != "ok":
         out.append(f"  {FAIL} {_status_text(a)}")
         return out
     out.append(f"  {OK} Connected")
+    out.append(f"  Tier: {_tier_label(a)}")
     if a.get("project_id"):
         out.append(f"  Project: {a['project_id']}")
-    if tier:
-        out.append(f"  Tier: {tier}")
-    models = a.get("models") or []
-    tightest = a.get("tightest_remaining_pct")
-    tightest_txt = format_pct(tightest, 0) if tightest is not None else "n/a"
-    out.append(
-        f"  Models: {a.get('model_count', len(models))} | Tightest: {tightest_txt} remaining"
-    )
-    out.extend(_model_lines(models))
+    groups = a.get("groups") or []
+    if not groups:
+        out.append("  No quota data available")
+        return out
+    for group in groups:
+        out.append("")
+        out.append(f"  {group['name']}")
+        out.extend(_bucket_lines(group.get("buckets") or []))
     return out
 
 
-def _model_lines(models: list[dict]) -> list[str]:
-    if not models:
-        return []
-    width = max(len(m["name"]) for m in models) + 1
+def _tier_label(a: dict) -> str:
+    tier = a.get("tier")
+    tier_id = a.get("tier_id")
+    if not tier:
+        return "unknown"
+    if tier_id and tier_id.lower() != tier.lower():
+        return f"{tier} ({tier_id})"
+    return tier
+
+
+def _bucket_lines(buckets: list[dict]) -> list[str]:
     lines = []
-    for m in models:
-        label = (m["name"] + ":").ljust(width + 1)
-        remaining = m.get("remaining_pct")
-        remaining_txt = f"{remaining:>4.0f}%" if remaining is not None else "   ?%"
-        line = f"  {label}{remaining_txt} remaining"
-        if m.get("resets_at"):
-            line += f" → resets {m['resets_at']}"
+    for b in buckets:
+        label = (b.get("label", "Limit") + ":").ljust(17)
+        used = b.get("used_pct")
+        used_txt = f"{used:>5.1f}% used" if used is not None else "    ? used"
+        line = f"    {label}{used_txt}"
+        if b.get("resets_at"):
+            line += f" → resets in {format_reset_in(b['resets_at'])}"
         lines.append(line)
     return lines
 
@@ -189,10 +191,10 @@ def _claude_oneline(c: dict) -> str:
 def _antigravity_oneline(a: dict) -> str:
     if a.get("status") != "ok":
         return f"Antigravity: {FAIL} {_short_status(a)}"
-    tightest = a.get("tightest_remaining_pct")
-    if tightest is None:
+    used = a.get("highest_used_pct")
+    if used is None:
         return f"Antigravity: {FAIL} no data"
-    return f"Antigravity: {tightest:.0f}% tightest {status_icon_remaining(tightest)}"
+    return f"Antigravity: {used:.1f}% used {status_icon(used)}"
 
 
 def _status_text(d: dict) -> str:
