@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ai-limit-checker"
-version = "0.8.0"
+version = "0.9.0"
 description = "Check usage limits for Claude Code and Antigravity CLI from terminal"
 readme = "README.md"
 license = "MIT"
@@ -32,6 +32,7 @@ test = ["pytest>=7.0", "ruff>=0.5"]
 [project.scripts]
 aichecker = "ai_limit_checker.cli:main"
 ailimits = "ai_limit_checker.cli:main"
+aichecker-mcp = "ai_limit_checker.mcp_server:serve"
 
 [project.urls]
 Homepage = "https://github.com/peetwan/ai-limit-checker"

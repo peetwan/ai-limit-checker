@@ -274,12 +274,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Watch mode: log what would happen without calling the CLIs",
     )
+    parser.add_argument(
+        "--burn-rate",
+        action="store_true",
+        help="Show burn-rate analysis: usage velocity and estimated time to limit.",
+    )
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="Start as an MCP server (JSON-RPC over stdio) for AI agent integration.",
+    )
     parser.add_argument("--version", action="version", version=f"ai-limit-checker {__version__}")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.mcp:
+        from .mcp_server import serve
+
+        serve()
+        return 0
 
     if args.watch:
         from .watch import watch_5h_resets
@@ -290,6 +306,16 @@ def main(argv: list[str] | None = None) -> int:
             once=args.once,
             dry_run=args.dry_run,
         )
+        return 0
+
+    if args.burn_rate:
+        from .burn_rate import format_burn_rate, get_burn_rate
+
+        rates = get_burn_rate(fresh=not args.no_cache)
+        if args.json:
+            print(json.dumps(rates, indent=2))
+        else:
+            print(format_burn_rate(rates))
         return 0
 
     both = not (args.claude or args.antigravity)
