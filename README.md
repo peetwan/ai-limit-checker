@@ -38,7 +38,7 @@ aichecker --oneline
   Antigravity CLI
 ════════════════════════════════════════
   ✅ Connected
-  Tier: Antigravity (free-tier)
+  Tier: Google AI Ultra
   Project: melodic-component-26v41
 
   Gemini Models
@@ -53,6 +53,14 @@ aichecker --oneline
 > Antigravity usage matches the desktop app's "Weekly Limit" / "Five Hour Limit"
 > readouts. Models are grouped (Gemini vs. Claude/GPT); within a group the
 > weekly and five-hour windows are shared. Reported as **% used**, like the app.
+>
+> **Tier note:** `loadCodeAssist` returns two tiers. `currentTier` is the Cloud
+> Code Assist *API* tier — always `free-tier` for consumer (non-GCP) accounts,
+> regardless of any Google One AI subscription. `paidTier` carries the real
+> subscription (e.g. *Google AI Ultra*) and only appears when one exists, so the
+> tool prefers it. The raw API tier is still available as `api_tier_id` in
+> `--json` output. Accounts with no Google One AI plan correctly show
+> `Antigravity (free-tier)`.
 
 ## JSON Output (for AI agents)
 

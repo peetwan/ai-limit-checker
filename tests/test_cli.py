@@ -107,6 +107,22 @@ def test_format_human_sections():
     assert "93.0% used" in out
 
 
+def test_tier_label_free_shows_id():
+    assert cli._tier_label({"tier": "Antigravity", "tier_id": "free-tier"}) == "Antigravity (free-tier)"
+
+
+def test_tier_label_paid_hides_id():
+    # A Google One subscription shows its name only, never the internal id.
+    label = cli._tier_label(
+        {"tier": "Google AI Ultra", "tier_id": "g1-ultra-lite-tier", "is_paid": True}
+    )
+    assert label == "Google AI Ultra"
+
+
+def test_tier_label_unknown():
+    assert cli._tier_label({"tier": None}) == "unknown"
+
+
 def test_format_human_error_state():
     out = cli.format_human({"claude": {"status": "error", "error": "HTTP 429"}})
     assert "Error: HTTP 429" in out
