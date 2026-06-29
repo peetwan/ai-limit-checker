@@ -242,6 +242,11 @@ def _parse_bucket(bucket: object) -> dict | None:
         "window": bucket.get("window"),
         "used_pct": round((1.0 - fraction) * 100.0, 1),
         "remaining_pct": round(fraction * 100.0, 1),
+        # Raw 0-1 fraction, kept at full precision. The server reports exactly
+        # ``1`` for an untouched bucket and a precise float (e.g. ``0.9841012``)
+        # once any usage is recorded, so this distinguishes "genuinely zero" from
+        # "tiny but nonzero" — a distinction the rounded ``used_pct`` loses.
+        "remaining_fraction": fraction,
         "resets_at": utils.normalize_iso(bucket.get("resetTime")),
         "note": bucket.get("description"),
     }
