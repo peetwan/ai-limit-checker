@@ -433,3 +433,127 @@ def test_watch_once_dry_run_no_ping(tmp_path, monkeypatch):
 
     # _ping_cli IS called but with dry_run=True, so no real subprocess
     assert "claude" in ping_calls
+
+
+def test_reset_detected_when_window_dropped_from_api(tmp_path, monkeypatch) -> None:
+    """If a window was used but is now missing from current, a reset is detected."""
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr(watch, "STATE_FILE", state_file)
+    monkeypatch.setattr(watch, "STATE_DIR", tmp_path)
+
+    # Window was used (used_pct=30%) and resets_at in the past
+    state = {
+        "claude_5h": {
+            "label": "Claude Code 5h",
+            "resets_at": "2026-06-29T07:00:00Z",
+            "used_pct": 30.0,
+            "tool": "claude",
+        }
+    }
+    state_file.write_text(json.dumps(state))
+
+    # Current has NO claude_5h window (API dropped it)
+    current = {}
+
+    # Assert check_resets() returns the label
+    now = datetime(2026, 6, 29, 9, 0, tzinfo=timezone.utc)
+    resets = watch.check_resets(current, state, now=now)
+    assert resets == ["Claude Code 5h"]
+
+    # Assert watch_5h_resets(once=True) triggers a ping
+    ping_calls: list[str] = []
+    monkeypatch.setattr(
+        watch,
+        "_ping_cli",
+        lambda tool, dry_run=False: ping_calls.append(tool) or f"{tool}: pinged",
+    )
+    # Mock gather to return empty structure so claude_5h is not collected
+    monkeypatch.setattr(watch, "gather", lambda **kw: {"claude": {"status": "error"}})
+
+    watch.watch_5h_resets(once=True)
+    assert "claude" in ping_calls
+
+
+def test_reset_not_triggered_for_zero_usage(tmp_path, monkeypatch) -> None:
+    """If a window was in state with 0% usage, and is missing from current, no reset triggers."""
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr(watch, "STATE_FILE", state_file)
+    monkeypatch.setattr(watch, "STATE_DIR", tmp_path)
+
+    state = {
+        "claude_5h": {
+            "label": "Claude Code 5h",
+            "resets_at": "2026-06-29T07:00:00Z",
+            "used_pct": 0.0,
+            "tool": "claude",
+        }
+    }
+    state_file.write_text(json.dumps(state))
+
+    current = {}
+
+    now = datetime(2026, 6, 29, 9, 0, tzinfo=timezone.utc)
+    resets = watch.check_resets(current, state, now=now)
+    assert resets == []
+
+    # Also run watch_5h_resets(once=True) to make sure no ping is triggered
+    ping_calls: list[str] = []
+    monkeypatch.setattr(
+        watch,
+        "_ping_cli",
+        lambda tool, dry_run=False: ping_calls.append(tool) or f"{tool}: pinged",
+    )
+    monkeypatch.setattr(watch, "gather", lambda **kw: {"claude": {"status": "error"}})
+
+    watch.watch_5h_resets(once=True)
+    assert ping_calls == []
+
+
+def test_trigger_pings_falls_back_to_state(monkeypatch) -> None:
+    """trigger_pings falls back to state for tool/label when key is missing from current."""
+    current = {}
+    state = {
+        "claude_5h": {
+            "label": "Claude Code 5h",
+            "resets_at": "2026-06-29T07:00:00Z",
+            "used_pct": 30.0,
+            "tool": "claude",
+        }
+    }
+    ping_calls: list[str] = []
+    monkeypatch.setattr(
+        watch,
+        "_ping_cli",
+        lambda tool, dry_run=False: ping_calls.append(tool) or f"{tool}: pinged",
+    )
+
+    results = watch.trigger_pings(current, ["claude_5h"], state=state)
+    assert "claude" in ping_calls
+    assert "Claude Code 5h" in results
+    assert results["Claude Code 5h"] == "claude: pinged"
+
+
+def test_state_cleaned_after_reset(tmp_path, monkeypatch) -> None:
+    """After a reset is triggered, the reset window is removed from state."""
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr(watch, "STATE_FILE", state_file)
+    monkeypatch.setattr(watch, "STATE_DIR", tmp_path)
+
+    state = {
+        "claude_5h": {
+            "label": "Claude Code 5h",
+            "resets_at": "2026-06-29T07:00:00Z",
+            "used_pct": 30.0,
+            "tool": "claude",
+        }
+    }
+    state_file.write_text(json.dumps(state))
+
+    monkeypatch.setattr(watch, "gather", lambda **kw: {"claude": {"status": "error"}})
+    monkeypatch.setattr(watch, "_ping_cli", lambda tool, dry_run=False: f"{tool}: pinged")
+
+    watch.watch_5h_resets(once=True)
+
+    # Read state file to verify claude_5h was removed
+    saved_state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert "claude_5h" not in saved_state

@@ -118,6 +118,7 @@ def check_resets(
     ref = now or datetime.now(timezone.utc)
     reset_labels: list[str] = []
 
+    # Windows still in current
     for key, window in current.items():
         prev = state.get(key)
         if not prev or prev.get("used_pct", 0) <= 0:
@@ -127,6 +128,18 @@ def check_resets(
             continue
         if ref >= prev_reset + timedelta(seconds=delay):
             reset_labels.append(window["label"])
+
+    # Windows in state but MISSING from current (reset to 0%, API dropped them)
+    for key, prev in state.items():
+        if key in current:
+            continue
+        if not isinstance(prev, dict) or prev.get("used_pct", 0) <= 0:
+            continue
+        prev_reset = _parse_iso(prev.get("resets_at"))
+        if not prev_reset:
+            continue
+        if ref >= prev_reset + timedelta(seconds=delay):
+            reset_labels.append(prev.get("label", key))
 
     return reset_labels
 
@@ -163,6 +176,7 @@ def trigger_pings(
     current: dict[str, dict],
     reset_keys: list[str],
     dry_run: bool = False,
+    state: dict[str, dict] | None = None,
 ) -> dict[str, str]:
     """Send a ping to the CLI for each reset window.
 
@@ -173,10 +187,12 @@ def trigger_pings(
 
     for key in reset_keys:
         window = current.get(key)
+        if not window and state:
+            window = state.get(key)
         if not window:
             continue
         tool = window.get("tool", "")
-        label = window["label"]
+        label = window.get("label", key)
 
         # Only ping each tool once per cycle — multiple groups (e.g.
         # Gemini + Claude/GPT on Antigravity) share the same 5h window
@@ -217,9 +233,24 @@ def watch_5h_resets(
         # Find which windows reset by comparing current keys against state.
         reset_keys: list[str] = []
         ref = datetime.now(timezone.utc)
+
+        # Check windows in current (normal case: window still exists)
         for key, _window in current.items():
             prev = state.get(key)
             if not prev or prev.get("used_pct", 0) <= 0:
+                continue
+            prev_reset = _parse_iso(prev.get("resets_at"))
+            if not prev_reset:
+                continue
+            if ref >= prev_reset + timedelta(seconds=delay):
+                reset_keys.append(key)
+
+        # Also check windows in state but MISSING from current
+        # (window reset to 0% — API dropped it because no resets_at)
+        for key, prev in state.items():
+            if key in current:
+                continue  # already checked above
+            if not isinstance(prev, dict) or prev.get("used_pct", 0) <= 0:
                 continue
             prev_reset = _parse_iso(prev.get("resets_at"))
             if not prev_reset:
@@ -232,8 +263,11 @@ def watch_5h_resets(
         _save_state(state)
 
         if reset_keys:
-            labels = [current[k]["label"] for k in reset_keys]
-            ping_results = trigger_pings(current, reset_keys, dry_run=dry_run)
+            labels = [
+                current[k]["label"] if k in current else state[k].get("label", key)
+                for k in reset_keys
+            ]
+            ping_results = trigger_pings(current, reset_keys, dry_run=dry_run, state=state)
 
             if on_reset:
                 on_reset(labels)
@@ -246,6 +280,11 @@ def watch_5h_resets(
                     print(f"🔄 [{timestamp}] 5h limits reset: {listing}")
                 for label, status in ping_results.items():
                     print(f"  → {label}: {status}")
+
+            # After pinging, remove reset windows from state so they don't re-trigger
+            for key in reset_keys:
+                state.pop(key, None)
+            _save_state(state)
 
         if once:
             return
