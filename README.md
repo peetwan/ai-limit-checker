@@ -35,12 +35,24 @@ aichecker --oneline
   7d Window:  56.0% used (44.0% left) → resets in 2d 17h
 
 ════════════════════════════════════════
-  Antigravity CLI (Ultra)
+  Antigravity CLI
 ════════════════════════════════════════
   ✅ Connected
+  Tier: Antigravity (free-tier)
   Project: melodic-component-26v41
-  Models: 8 | Tightest: 65% remaining
+
+  Gemini Models
+    Weekly Limit:      0.0% used → resets in 6d 23h
+    Five Hour Limit:   0.0% used → resets in 4h 59m
+
+  Claude and GPT models
+    Weekly Limit:     93.0% used → resets in 2d 20h
+    Five Hour Limit:  95.0% used → resets in 19m
 ```
+
+> Antigravity usage matches the desktop app's "Weekly Limit" / "Five Hour Limit"
+> readouts. Models are grouped (Gemini vs. Claude/GPT); within a group the
+> weekly and five-hour windows are shared. Reported as **% used**, like the app.
 
 ## JSON Output (for AI agents)
 
@@ -56,7 +68,7 @@ AI agents (Hermes, Claude Code, etc.) can parse this to plan task delegation.
 | Tool | Metrics |
 |------|---------|
 | Claude Code | 5h window, 7d window, Sonnet/Opus breakdown |
-| Antigravity CLI | Per-model quota, remaining fraction, reset time |
+| Antigravity CLI | Per-group weekly + five-hour limits, % used, reset time |
 
 ## How It Works
 

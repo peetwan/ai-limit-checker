@@ -1,55 +1,92 @@
-"""Tests for Antigravity model parsing, token refresh, and the check flow."""
+"""Tests for Antigravity quota parsing, token refresh, and the check flow."""
 
 import pytest
 
 from ai_limit_checker import antigravity, utils
 
-MODELS_RESPONSE = {
-    "models": {
-        "gemini-3.5-flash": {
-            "displayName": "Gemini 3.5 Flash",
-            "quotaInfo": {"remainingFraction": 1.0, "resetTime": "2026-06-29T09:53Z"},
+# Shape mirrors a real ``retrieveUserQuotaSummary`` response: model groups, each
+# with a weekly and a five-hour bucket. ``remainingFraction`` is 0-1.
+QUOTA_SUMMARY = {
+    "groups": [
+        {
+            "displayName": "Gemini Models",
+            "description": "Models within this group: Gemini Flash, Gemini Pro",
+            "buckets": [
+                {
+                    "bucketId": "gemini-weekly",
+                    "displayName": "Weekly Limit",
+                    "window": "weekly",
+                    "resetTime": "2026-07-06T06:28:57Z",
+                    "remainingFraction": 1,
+                },
+                {
+                    "bucketId": "gemini-5h",
+                    "displayName": "Five Hour Limit",
+                    "window": "5h",
+                    "resetTime": "2026-06-29T11:28:57Z",
+                    "remainingFraction": 1,
+                },
+            ],
         },
-        "claude-opus-4-5": {
-            "displayName": "Claude Opus 4.5",
-            "quotaInfo": {"remainingFraction": 0.65, "resetTime": "2026-06-29T18:00Z"},
+        {
+            "displayName": "Claude and GPT models",
+            "description": "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
+            "buckets": [
+                {
+                    "bucketId": "3p-weekly",
+                    "displayName": "Weekly Limit",
+                    "window": "weekly",
+                    "resetTime": "2026-07-02T03:28:55Z",
+                    "description": "You have used some of your weekly limit.",
+                    "remainingFraction": 0.07,
+                },
+                {
+                    "bucketId": "3p-5h",
+                    "displayName": "Five Hour Limit",
+                    "window": "5h",
+                    "resetTime": "2026-06-29T11:28:57Z",
+                    "remainingFraction": 0.05,
+                },
+            ],
         },
-        "no-quota-model": {"displayName": "No Quota"},
-    }
+    ]
 }
 
 
-def test_parse_models_dict():
-    models = antigravity.parse_models(MODELS_RESPONSE)
-    assert len(models) == 2  # no-quota-model filtered out
-    by_name = {m["name"]: m for m in models}
-    assert by_name["gemini-3.5-flash"]["remaining_pct"] == 100.0
-    assert by_name["claude-opus-4-5"]["remaining_pct"] == 65.0
-    assert by_name["claude-opus-4-5"]["resets_at"] == "2026-06-29T18:00:00Z"  # normalized
+def test_parse_quota_summary_groups():
+    groups = antigravity.parse_quota_summary(QUOTA_SUMMARY)
+    assert len(groups) == 2
+    gemini, third_party = groups
+    assert gemini["name"] == "Gemini Models"
+    assert gemini["models"] == "Gemini Flash, Gemini Pro"
+    assert len(gemini["buckets"]) == 2
 
 
-def test_parse_models_list():
-    data = {
-        "models": [
-            {"name": "m1", "quotaInfo": {"remainingFraction": 0.5}},
-            {"name": "m2"},
-        ]
-    }
-    models = antigravity.parse_models(data)
-    assert len(models) == 1
-    assert models[0]["name"] == "m1"
-    assert models[0]["remaining_pct"] == 50.0
+def test_parse_quota_summary_used_pct():
+    groups = antigravity.parse_quota_summary(QUOTA_SUMMARY)
+    third_party = groups[1]
+    weekly = third_party["buckets"][0]
+    assert weekly["label"] == "Weekly Limit"
+    assert weekly["window"] == "weekly"
+    assert weekly["used_pct"] == 93.0  # 1 - 0.07
+    assert weekly["remaining_pct"] == 7.0
+    assert weekly["resets_at"] == "2026-07-02T03:28:55Z"  # normalized
+    assert weekly["note"] == "You have used some of your weekly limit."
+    five_hour = third_party["buckets"][1]
+    assert five_hour["used_pct"] == 95.0  # 1 - 0.05
 
 
-def test_parse_models_empty():
-    assert antigravity.parse_models({}) == []
-    assert antigravity.parse_models({"models": None}) == []
+def test_parse_quota_summary_empty():
+    assert antigravity.parse_quota_summary({}) == []
+    assert antigravity.parse_quota_summary({"groups": None}) == []
+    # Buckets without remainingFraction are skipped; empty groups dropped.
+    assert antigravity.parse_quota_summary({"groups": [{"buckets": [{"window": "5h"}]}]}) == []
 
 
-def test_tightest_remaining():
-    models = antigravity.parse_models(MODELS_RESPONSE)
-    assert antigravity.tightest_remaining(models) == 65.0
-    assert antigravity.tightest_remaining([]) is None
+def test_highest_used():
+    groups = antigravity.parse_quota_summary(QUOTA_SUMMARY)
+    assert antigravity.highest_used(groups) == 95.0  # 3p five-hour, most constrained
+    assert antigravity.highest_used([]) is None
 
 
 def test_get_access_token_valid_not_refreshed(monkeypatch):
@@ -96,16 +133,17 @@ def test_check_antigravity_ok(monkeypatch):
         "fetch_load_code_assist",
         lambda token: {
             "cloudaicompanionProject": "melodic-component-26v41",
-            "currentTier": {"id": "ultra", "name": "Ultra"},
+            "currentTier": {"id": "free-tier", "name": "Antigravity"},
         },
     )
-    monkeypatch.setattr(antigravity, "fetch_models", lambda token, project: MODELS_RESPONSE)
+    monkeypatch.setattr(antigravity, "fetch_quota_summary", lambda token, project: QUOTA_SUMMARY)
     result = antigravity.check_antigravity(creds={"refresh_token": "RT"})
     assert result["status"] == "ok"
-    assert result["tier"] == "Ultra"
+    assert result["tier"] == "Antigravity"
+    assert result["tier_id"] == "free-tier"
     assert result["project_id"] == "melodic-component-26v41"
-    assert result["model_count"] == 2
-    assert result["tightest_remaining_pct"] == 65.0
+    assert result["group_count"] == 2
+    assert result["highest_used_pct"] == 95.0
 
 
 def test_check_antigravity_error(monkeypatch):

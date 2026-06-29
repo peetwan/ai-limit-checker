@@ -16,14 +16,49 @@ SAMPLE = {
     "antigravity": {
         "status": "ok",
         "error": None,
-        "tier": "Ultra",
+        "tier": "Antigravity",
+        "tier_id": "free-tier",
         "project_id": "melodic-component-26v41",
-        "models": [
-            {"name": "gemini-3.5-flash", "remaining_pct": 100.0, "resets_at": "2026-06-29T09:53Z"},
-            {"name": "claude-opus-4-5", "remaining_pct": 65.0, "resets_at": "2026-06-29T18:00Z"},
+        "groups": [
+            {
+                "name": "Gemini Models",
+                "models": "Gemini Flash, Gemini Pro",
+                "buckets": [
+                    {
+                        "label": "Weekly Limit",
+                        "window": "weekly",
+                        "used_pct": 0.0,
+                        "remaining_pct": 100.0,
+                        "resets_at": "2026-07-06T06:28:57Z",
+                        "note": None,
+                    },
+                    {
+                        "label": "Five Hour Limit",
+                        "window": "5h",
+                        "used_pct": 0.0,
+                        "remaining_pct": 100.0,
+                        "resets_at": "2026-06-29T16:56:00Z",
+                        "note": None,
+                    },
+                ],
+            },
+            {
+                "name": "Claude and GPT models",
+                "models": "Claude Opus, Claude Sonnet, GPT-OSS",
+                "buckets": [
+                    {
+                        "label": "Weekly Limit",
+                        "window": "weekly",
+                        "used_pct": 93.0,
+                        "remaining_pct": 7.0,
+                        "resets_at": "2026-07-02T03:28:55Z",
+                        "note": "You have used some of your weekly limit.",
+                    },
+                ],
+            },
         ],
-        "tightest_remaining_pct": 65.0,
-        "model_count": 2,
+        "highest_used_pct": 93.0,
+        "group_count": 2,
     },
 }
 
@@ -41,14 +76,14 @@ def test_parser_flags():
 def test_format_json_is_valid():
     parsed = json.loads(cli.format_json(SAMPLE))
     assert parsed["claude"]["plan"] == "Max"
-    assert parsed["antigravity"]["tightest_remaining_pct"] == 65.0
+    assert parsed["antigravity"]["highest_used_pct"] == 93.0
 
 
 def test_format_oneline():
     line = cli.format_oneline(SAMPLE)
     assert "Claude: 1.0% (5h)" in line
     assert "56.0% (7d)" in line
-    assert "Antigravity: 65% tightest" in line
+    assert "Antigravity: 93.0% used" in line
     assert utils.OK in line
     assert "\n" not in line
 
@@ -63,10 +98,13 @@ def test_format_human_sections():
     assert "🔍 AI CLI Usage Checker" in out
     assert "Claude Code (Max Plan)" in out
     assert "5h Window:  1.0% used (99.0% left)" in out
-    assert "Antigravity CLI (Ultra)" in out
+    assert "Antigravity CLI" in out
+    assert "Tier: Antigravity (free-tier)" in out
     assert "Project: melodic-component-26v41" in out
-    assert "gemini-3.5-flash:" in out
-    assert "Tightest: 65% remaining" in out
+    assert "Gemini Models" in out
+    assert "Claude and GPT models" in out
+    assert "Weekly Limit:" in out
+    assert "93.0% used" in out
 
 
 def test_format_human_error_state():

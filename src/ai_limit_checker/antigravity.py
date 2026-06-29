@@ -1,8 +1,16 @@
 """Antigravity CLI usage checker.
 
 Reads the local Google OAuth token (refreshing it if expired), then queries
-Cloud Code's internal endpoints for the active project, tier, and per-model
-quota.
+Cloud Code's internal endpoints for the active project, tier, and the grouped
+usage limits (weekly + five-hour windows) that the Antigravity desktop app
+displays.
+
+Usage comes from ``retrieveUserQuotaSummary`` — the same endpoint the desktop
+app uses. It returns model *groups* ("Gemini Models", "Claude and GPT models"),
+each with a "Weekly Limit" and a "Five Hour Limit". The older
+``retrieveUserQuota`` / ``fetchAvailableModels`` endpoints report a raw
+per-model ``remainingFraction`` that is always ``1`` (the real limits are
+enforced at the group level), which is why they appear to show "100% free".
 
 OAuth client credentials are NOT hardcoded. They are extracted from the
 agy binary at runtime so the package works for anyone with agy installed.
@@ -21,7 +29,7 @@ from . import utils
 from .credentials import read_antigravity_credentials
 
 LOAD_URL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
-MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+QUOTA_SUMMARY_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 USER_AGENT = "antigravity/windows/amd64"
 
@@ -167,53 +175,83 @@ def fetch_load_code_assist(token: str) -> dict:
     return data
 
 
-def fetch_models(token: str, project_id: str | None) -> dict:
-    """Call ``fetchAvailableModels`` for the given project."""
+def fetch_quota_summary(token: str, project_id: str | None) -> dict:
+    """Call ``retrieveUserQuotaSummary`` for the grouped weekly/5h limits.
+
+    This is the endpoint the Antigravity desktop app uses for its "Weekly
+    Limit" / "Five Hour Limit" readouts. The ``project`` field is optional
+    (the server resolves the caller's project), but we pass it when known.
+    """
     status, data = utils.http_json(
-        "POST", MODELS_URL, headers=_auth_headers(token), body={"project": project_id or ""}
+        "POST",
+        QUOTA_SUMMARY_URL,
+        headers=_auth_headers(token),
+        body={"project": project_id} if project_id else {},
     )
     if status != 200:
-        raise RuntimeError(f"fetchAvailableModels HTTP {status}")
+        raise RuntimeError(f"retrieveUserQuotaSummary HTTP {status}")
     return data
 
 
-def parse_models(data: dict) -> list[dict]:
-    """Build the model list from a ``fetchAvailableModels`` response.
+def parse_quota_summary(data: dict) -> list[dict]:
+    """Build the grouped-limit list from a ``retrieveUserQuotaSummary`` response.
 
-    Models without quota information are skipped. ``remainingFraction`` (0-1)
-    is converted to a percentage.
+    Each group (e.g. "Gemini Models") carries one bucket per window — a
+    "Weekly Limit" and a "Five Hour Limit". ``remainingFraction`` (0-1) is
+    converted to both a *used* and a *remaining* percentage, since the app
+    reports usage as "93% used" rather than "7% remaining".
     """
-    models_raw = data.get("models")
-    if isinstance(models_raw, dict):
-        items = list(models_raw.items())
-    elif isinstance(models_raw, list):
-        items = [(_model_id(m), m) for m in models_raw]
-    else:
+    groups_raw = data.get("groups")
+    if not isinstance(groups_raw, list):
         return []
 
-    result: list[dict] = []
-    for name, model in items:
-        if not isinstance(model, dict):
+    groups: list[dict] = []
+    for group in groups_raw:
+        if not isinstance(group, dict):
             continue
-        quota = model.get("quotaInfo")
-        if not isinstance(quota, dict) or quota.get("remainingFraction") is None:
+        buckets = [
+            parsed
+            for bucket in (group.get("buckets") or [])
+            if (parsed := _parse_bucket(bucket)) is not None
+        ]
+        if not buckets:
             continue
-        fraction = float(quota["remainingFraction"])
-        result.append(
+        groups.append(
             {
-                "name": name or _model_id(model),
-                "display_name": model.get("displayName") or name or _model_id(model),
-                "remaining_pct": round(fraction * 100.0, 1),
-                "resets_at": utils.normalize_iso(quota.get("resetTime")),
+                "name": group.get("displayName") or "Models",
+                "models": _models_in_group(group.get("description")),
+                "buckets": buckets,
             }
         )
-    return result
+    return groups
 
 
-def tightest_remaining(models: list[dict]) -> float | None:
-    """Smallest ``remaining_pct`` across all models, or ``None`` if empty."""
-    values = [m["remaining_pct"] for m in models if m.get("remaining_pct") is not None]
-    return min(values) if values else None
+def _parse_bucket(bucket: object) -> dict | None:
+    if not isinstance(bucket, dict) or bucket.get("remainingFraction") is None:
+        return None
+    fraction = float(bucket["remainingFraction"])
+    return {
+        "label": bucket.get("displayName") or bucket.get("bucketId") or "Limit",
+        "window": bucket.get("window"),
+        "used_pct": round((1.0 - fraction) * 100.0, 1),
+        "remaining_pct": round(fraction * 100.0, 1),
+        "resets_at": utils.normalize_iso(bucket.get("resetTime")),
+        "note": bucket.get("description"),
+    }
+
+
+def highest_used(groups: list[dict]) -> float | None:
+    """Largest ``used_pct`` across every bucket, or ``None`` if there are none.
+
+    This is the most-constrained limit — the one closest to being hit.
+    """
+    values = [
+        bucket["used_pct"]
+        for group in groups
+        for bucket in group["buckets"]
+        if bucket.get("used_pct") is not None
+    ]
+    return max(values) if values else None
 
 
 def check_antigravity(creds: dict | None = None) -> dict:
@@ -229,19 +267,20 @@ def check_antigravity(creds: dict | None = None) -> dict:
             return _empty("error", "could not obtain access token")
         load = fetch_load_code_assist(token)
         project_id = load.get("cloudaicompanionProject")
-        tier = _extract_tier(load)
-        models = parse_models(fetch_models(token, project_id))
+        tier_name, tier_id = _extract_tier(load)
+        groups = parse_quota_summary(fetch_quota_summary(token, project_id))
     except (RuntimeError, ValueError, KeyError, TypeError) as exc:
         return _empty("error", str(exc))
 
     return {
         "status": "ok",
         "error": None,
-        "tier": tier,
+        "tier": tier_name,
+        "tier_id": tier_id,
         "project_id": project_id,
-        "models": models,
-        "tightest_remaining_pct": tightest_remaining(models),
-        "model_count": len(models),
+        "groups": groups,
+        "highest_used_pct": highest_used(groups),
+        "group_count": len(groups),
     }
 
 
@@ -249,19 +288,28 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
 
-def _extract_tier(load: dict) -> str | None:
+def _extract_tier(load: dict) -> tuple[str | None, str | None]:
+    """Return ``(tier_name, tier_id)`` from a ``loadCodeAssist`` response."""
     tier = load.get("currentTier")
     if isinstance(tier, dict):
-        return tier.get("name") or tier.get("id")
+        return (tier.get("name") or tier.get("id")), tier.get("id")
     if isinstance(tier, str):
-        return tier
-    return None
+        return tier, None
+    return None, None
 
 
-def _model_id(model: dict) -> str | None:
-    if not isinstance(model, dict):
+def _models_in_group(description: object) -> str | None:
+    """Pull the model list out of a group description, if present.
+
+    e.g. "Models within this group: Gemini Flash, Gemini Pro" -> the trailing
+    "Gemini Flash, Gemini Pro".
+    """
+    if not isinstance(description, str):
         return None
-    return model.get("modelId") or model.get("name") or model.get("id")
+    marker = "Models within this group:"
+    if marker in description:
+        return description.split(marker, 1)[1].strip() or None
+    return None
 
 
 def _empty(status: str, error: str | None = None) -> dict:
@@ -269,8 +317,9 @@ def _empty(status: str, error: str | None = None) -> dict:
         "status": status,
         "error": error,
         "tier": None,
+        "tier_id": None,
         "project_id": None,
-        "models": [],
-        "tightest_remaining_pct": None,
-        "model_count": 0,
+        "groups": [],
+        "highest_used_pct": None,
+        "group_count": 0,
     }
