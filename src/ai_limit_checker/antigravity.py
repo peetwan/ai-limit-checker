@@ -51,8 +51,10 @@ def _resolve_oauth_client() -> tuple[str, str]:
 def _extract_from_agy_binary() -> tuple[str, str]:
     """Scan the agy binary for its embedded OAuth client_id and client_secret.
 
-    The agy binary contains two Google OAuth installed-app credentials. We look
-    for the one whose client_id starts with ``1071`` (the Antigravity CLI app).
+    The agy binary embeds one client secret and one or more client IDs.
+    We try each ID with the found secret and return the working pair.
+    If no network probe is possible, we prefer the ID starting with ``1071``
+    (the Antigravity CLI app).
     """
     agy_path = _find_agy_binary()
     if not agy_path:
@@ -90,20 +92,27 @@ def _extract_from_agy_binary() -> tuple[str, str]:
 
 def _find_agy_binary() -> Path | None:
     """Locate the agy executable on disk."""
+    import sys
+
     agy = shutil.which("agy")
     if agy:
         path = Path(agy)
         if path.exists():
             return path
 
-    # Common install locations
+    # Common install locations (check .exe on Windows)
     home = Path.home()
-    candidates = [
-        home / "AppData" / "Local" / "agy" / "bin" / "agy",  # Windows
-        home / ".local" / "bin" / "agy",  # Linux
-        Path("/usr/local/bin/agy"),
-        Path("/opt/agy/bin/agy"),
-    ]
+    if sys.platform == "win32":
+        candidates = [
+            home / "AppData" / "Local" / "agy" / "bin" / "agy.exe",
+            home / "AppData" / "Local" / "agy" / "bin" / "agy",
+        ]
+    else:
+        candidates = [
+            home / ".local" / "bin" / "agy",
+            Path("/usr/local/bin/agy"),
+            Path("/opt/agy/bin/agy"),
+        ]
     for c in candidates:
         if c.exists():
             return c
