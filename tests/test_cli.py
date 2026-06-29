@@ -18,7 +18,7 @@ SAMPLE = {
         "error": None,
         "tier": "Antigravity",
         "tier_id": "free-tier",
-        "project_id": "melodic-component-26v41",
+        "project_id": "my-project-12345",
         "groups": [
             {
                 "name": "Gemini Models",
@@ -100,7 +100,7 @@ def test_format_human_sections():
     assert "5h Window:  1.0% used (99.0% left)" in out
     assert "Antigravity CLI" in out
     assert "Tier: Antigravity (free-tier)" in out
-    assert "Project: melodic-component-26v41" in out
+    assert "Project: my-project-12345" in out
     assert "Gemini Models" in out
     assert "Claude and GPT models" in out
     assert "Weekly Limit:" in out

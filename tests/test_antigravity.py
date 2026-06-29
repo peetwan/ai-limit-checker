@@ -164,7 +164,7 @@ def test_check_antigravity_ok(monkeypatch):
         antigravity,
         "fetch_load_code_assist",
         lambda token: {
-            "cloudaicompanionProject": "melodic-component-26v41",
+            "cloudaicompanionProject": "my-project-12345",
             "currentTier": {"id": "free-tier", "name": "Antigravity"},
         },
     )
@@ -175,7 +175,7 @@ def test_check_antigravity_ok(monkeypatch):
     assert result["tier_id"] == "free-tier"
     assert result["is_paid"] is False
     assert result["api_tier_id"] == "free-tier"
-    assert result["project_id"] == "melodic-component-26v41"
+    assert result["project_id"] == "my-project-12345"
     assert result["group_count"] == 2
     assert result["highest_used_pct"] == 95.0
 
@@ -188,7 +188,7 @@ def test_check_antigravity_paid_tier_wins(monkeypatch):
         antigravity,
         "fetch_load_code_assist",
         lambda token: {
-            "cloudaicompanionProject": "melodic-component-26v41",
+            "cloudaicompanionProject": "my-project-12345",
             "currentTier": {"id": "free-tier", "name": "Antigravity"},
             "paidTier": {"id": "g1-ultra-lite-tier", "name": "Google AI Ultra"},
         },

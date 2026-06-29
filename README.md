@@ -144,7 +144,7 @@ Returns structured JSON with all limits, remaining percentages, and reset timest
     "status": "ok",
     "tier": "Google AI Ultra",
     "is_paid": true,
-    "project_id": "melodic-component-26v41",
+    "project_id": "my-project-12345",
     "groups": [
       {
         "name": "Gemini Models",
@@ -214,7 +214,7 @@ Returns structured JSON with all limits, remaining percentages, and reset timest
 ════════════════════════════════════════
   ✅ Connected
   Tier: Google AI Ultra
-  Project: melodic-component-26v41
+  Project: my-project-12345
 
   Gemini Models
     Weekly Limit:       0.0% used → resets in 6d 23h
