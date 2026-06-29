@@ -141,9 +141,69 @@ def test_check_antigravity_ok(monkeypatch):
     assert result["status"] == "ok"
     assert result["tier"] == "Antigravity"
     assert result["tier_id"] == "free-tier"
+    assert result["is_paid"] is False
+    assert result["api_tier_id"] == "free-tier"
     assert result["project_id"] == "melodic-component-26v41"
     assert result["group_count"] == 2
     assert result["highest_used_pct"] == 95.0
+
+
+def test_check_antigravity_paid_tier_wins(monkeypatch):
+    # A consumer Ultra account: currentTier is always "free-tier", but paidTier
+    # carries the real Google One subscription. The subscription must win.
+    monkeypatch.setattr(antigravity, "get_access_token", lambda creds: "TOKEN")
+    monkeypatch.setattr(
+        antigravity,
+        "fetch_load_code_assist",
+        lambda token: {
+            "cloudaicompanionProject": "melodic-component-26v41",
+            "currentTier": {"id": "free-tier", "name": "Antigravity"},
+            "paidTier": {"id": "g1-ultra-lite-tier", "name": "Google AI Ultra"},
+        },
+    )
+    monkeypatch.setattr(antigravity, "fetch_quota_summary", lambda token, project: QUOTA_SUMMARY)
+    result = antigravity.check_antigravity(creds={"refresh_token": "RT"})
+    assert result["tier"] == "Google AI Ultra"
+    assert result["tier_id"] == "g1-ultra-lite-tier"
+    assert result["is_paid"] is True
+    assert result["api_tier_id"] == "free-tier"  # raw API tier still surfaced
+
+
+def test_extract_tier_free_only():
+    tier = antigravity._extract_tier({"currentTier": {"id": "free-tier", "name": "Antigravity"}})
+    assert tier == {
+        "tier": "Antigravity",
+        "tier_id": "free-tier",
+        "is_paid": False,
+        "api_tier_id": "free-tier",
+    }
+
+
+def test_extract_tier_prefers_paid():
+    tier = antigravity._extract_tier(
+        {
+            "currentTier": {"id": "free-tier", "name": "Antigravity"},
+            "paidTier": {"id": "g1-ultra-lite-tier", "name": "Google AI Ultra"},
+        }
+    )
+    assert tier["tier"] == "Google AI Ultra"
+    assert tier["tier_id"] == "g1-ultra-lite-tier"
+    assert tier["is_paid"] is True
+    assert tier["api_tier_id"] == "free-tier"
+
+
+def test_extract_tier_empty_paid_ignored():
+    # An empty paidTier object must not be treated as a subscription.
+    tier = antigravity._extract_tier(
+        {"currentTier": {"id": "free-tier", "name": "Antigravity"}, "paidTier": {}}
+    )
+    assert tier["is_paid"] is False
+    assert tier["tier_id"] == "free-tier"
+
+
+def test_extract_tier_missing():
+    tier = antigravity._extract_tier({})
+    assert tier == {"tier": None, "tier_id": None, "is_paid": False, "api_tier_id": None}
 
 
 def test_check_antigravity_error(monkeypatch):

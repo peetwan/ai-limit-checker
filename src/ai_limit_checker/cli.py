@@ -147,9 +147,14 @@ def _antigravity_section(a: dict) -> list[str]:
 
 def _tier_label(a: dict) -> str:
     tier = a.get("tier")
-    tier_id = a.get("tier_id")
     if not tier:
         return "unknown"
+    # A Google One subscription name (e.g. "Google AI Ultra") is self-explanatory;
+    # the internal id ("g1-ultra-lite-tier") would just be noise. For the free API
+    # tier, the id ("free-tier") is the informative part, so keep it.
+    if a.get("is_paid"):
+        return tier
+    tier_id = a.get("tier_id")
     if tier_id and tier_id.lower() != tier.lower():
         return f"{tier} ({tier_id})"
     return tier

@@ -12,6 +12,13 @@ each with a "Weekly Limit" and a "Five Hour Limit". The older
 per-model ``remainingFraction`` that is always ``1`` (the real limits are
 enforced at the group level), which is why they appear to show "100% free".
 
+``loadCodeAssist`` reports *two* tiers. ``currentTier`` is the Cloud Code
+Assist API tier, which is always ``free-tier`` for consumer (non-GCP) accounts
+no matter what Google One AI subscription they hold. ``paidTier`` carries the
+actual Google One subscription (e.g. "Google AI Ultra") and is only present
+when one exists — the agy binary reads this same field to detect Google One
+credits. We therefore prefer ``paidTier`` for the displayed tier.
+
 OAuth client credentials are NOT hardcoded. They are extracted from the
 agy binary at runtime so the package works for anyone with agy installed.
 Users may override via env vars ``AGY_CLIENT_ID`` / ``AGY_CLIENT_SECRET``.
@@ -267,7 +274,7 @@ def check_antigravity(creds: dict | None = None) -> dict:
             return _empty("error", "could not obtain access token")
         load = fetch_load_code_assist(token)
         project_id = load.get("cloudaicompanionProject")
-        tier_name, tier_id = _extract_tier(load)
+        tier = _extract_tier(load)
         groups = parse_quota_summary(fetch_quota_summary(token, project_id))
     except (RuntimeError, ValueError, KeyError, TypeError) as exc:
         return _empty("error", str(exc))
@@ -275,8 +282,10 @@ def check_antigravity(creds: dict | None = None) -> dict:
     return {
         "status": "ok",
         "error": None,
-        "tier": tier_name,
-        "tier_id": tier_id,
+        "tier": tier["tier"],
+        "tier_id": tier["tier_id"],
+        "is_paid": tier["is_paid"],
+        "api_tier_id": tier["api_tier_id"],
         "project_id": project_id,
         "groups": groups,
         "highest_used_pct": highest_used(groups),
@@ -288,9 +297,33 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
 
-def _extract_tier(load: dict) -> tuple[str | None, str | None]:
-    """Return ``(tier_name, tier_id)`` from a ``loadCodeAssist`` response."""
-    tier = load.get("currentTier")
+def _extract_tier(load: dict) -> dict:
+    """Resolve the tier to display from a ``loadCodeAssist`` response.
+
+    Returns a dict with::
+
+        tier         display name (``paidTier`` if present, else ``currentTier``)
+        tier_id      matching tier id
+        is_paid      True when a Google One ``paidTier`` subscription is present
+        api_tier_id  the raw ``currentTier`` id (e.g. "free-tier"), for debugging
+
+    The Google One subscription (``paidTier``) is the meaningful, user-facing
+    tier, so it wins over the Cloud Code Assist API tier (``currentTier``),
+    which is always ``free-tier`` for consumer accounts.
+    """
+    api_name, api_id = _tier_fields(load.get("currentTier"))
+    paid_name, paid_id = _tier_fields(load.get("paidTier"))
+    is_paid = paid_name is not None or paid_id is not None
+    return {
+        "tier": (paid_name or paid_id) if is_paid else (api_name or api_id),
+        "tier_id": paid_id if is_paid else api_id,
+        "is_paid": is_paid,
+        "api_tier_id": api_id,
+    }
+
+
+def _tier_fields(tier: object) -> tuple[str | None, str | None]:
+    """Return ``(name, id)`` from a ``UserTier`` object or bare tier string."""
     if isinstance(tier, dict):
         return (tier.get("name") or tier.get("id")), tier.get("id")
     if isinstance(tier, str):
@@ -318,6 +351,8 @@ def _empty(status: str, error: str | None = None) -> dict:
         "error": error,
         "tier": None,
         "tier_id": None,
+        "is_paid": False,
+        "api_tier_id": None,
         "project_id": None,
         "groups": [],
         "highest_used_pct": None,
