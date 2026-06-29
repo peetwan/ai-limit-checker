@@ -124,7 +124,10 @@ def test_used_text_normal_and_missing():
 
 
 def test_tier_label_free_shows_id():
-    assert cli._tier_label({"tier": "Antigravity", "tier_id": "free-tier"}) == "Antigravity (free-tier)"
+    assert (
+        cli._tier_label({"tier": "Antigravity", "tier_id": "free-tier"})
+        == "Antigravity (free-tier)"
+    )
 
 
 def test_tier_label_paid_hides_id():

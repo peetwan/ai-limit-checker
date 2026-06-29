@@ -94,7 +94,11 @@ def test_parse_quota_summary_tiny_usage_not_rounded_away():
             {
                 "displayName": "Gemini Models",
                 "buckets": [
-                    {"displayName": "Weekly Limit", "window": "weekly", "remainingFraction": 0.9996},
+                    {
+                        "displayName": "Weekly Limit",
+                        "window": "weekly",
+                        "remainingFraction": 0.9996,
+                    },
                 ],
             }
         ]

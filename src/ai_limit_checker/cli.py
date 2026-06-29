@@ -243,12 +243,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--claude", action="store_true", help="Check only Claude Code")
     parser.add_argument("--antigravity", action="store_true", help="Check only Antigravity CLI")
     parser.add_argument("--no-cache", action="store_true", help="Ignore the 60s result cache")
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Watch mode: poll every 5 min and print when a 5h limit window resets. "
+        "Use --interval and --delay to customise. Use --once for a single check "
+        "(suitable for cron jobs).",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help="Watch mode: seconds between polls (default 300)",
+    )
+    parser.add_argument(
+        "--delay",
+        type=int,
+        default=120,
+        metavar="SECONDS",
+        help="Watch mode: seconds to wait after reset time before triggering (default 120)",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Watch mode: run a single check and exit (for cron/scheduled use)",
+    )
     parser.add_argument("--version", action="version", version=f"ai-limit-checker {__version__}")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.watch:
+        from .watch import watch_5h_resets
+
+        watch_5h_resets(
+            interval=args.interval,
+            delay=args.delay,
+            once=args.once,
+        )
+        return 0
 
     both = not (args.claude or args.antigravity)
     result = gather(
