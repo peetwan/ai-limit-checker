@@ -53,13 +53,27 @@ def classify(used_pct: float | None) -> str:
 
 
 def _analyze_claude(c: dict | None) -> dict:
-    """Reduce a Claude result to its single most-constrained window."""
-    windows: list[tuple[float, str, str | None]] = []
+    """Reduce a Claude result, keeping per-window status (5h + 7d separately).
+
+    ``windows`` is a list of ``{label, used_pct, status, resets_at}`` dicts —
+    one per window that had data. The provider-level ``status`` is the *worst*
+    window's status, and ``bottleneck_window`` is the window with the highest
+    ``used_pct``.
+    """
+    windows: list[dict] = []
     if c and c.get("status") == "ok":
         for key, wlabel in (("five_hour", "5h"), ("seven_day", "7d")):
             w = c.get(key)
             if w and w.get("used_pct") is not None:
-                windows.append((w["used_pct"], wlabel, w.get("resets_at")))
+                used = w["used_pct"]
+                windows.append(
+                    {
+                        "label": wlabel,
+                        "used_pct": used,
+                        "status": classify(used),
+                        "resets_at": w.get("resets_at"),
+                    }
+                )
 
     if not windows:
         return {
@@ -67,43 +81,63 @@ def _analyze_claude(c: dict | None) -> dict:
             "highest_used_pct": None,
             "bottleneck_window": None,
             "resets_at": None,
+            "windows": [],
         }
 
-    used, wlabel, resets = max(windows, key=lambda t: t[0])
+    bottleneck = max(windows, key=lambda x: x["used_pct"])
     return {
-        "status": classify(used),
-        "highest_used_pct": used,
-        "bottleneck_window": wlabel,
-        "resets_at": resets,
+        "status": bottleneck["status"],
+        "highest_used_pct": bottleneck["used_pct"],
+        "bottleneck_window": bottleneck["label"],
+        "resets_at": bottleneck["resets_at"],
+        "windows": windows,
     }
 
 
 def _analyze_antigravity(a: dict | None) -> dict:
-    """Reduce an Antigravity result to its single most-constrained bucket."""
-    buckets: list[tuple[float, str | None, str | None, str | None]] = []
+    """Reduce an Antigravity result, keeping per-window status separately.
+
+    ``windows`` is a list of ``{label, group, used_pct, status, resets_at}`` —
+    one per group×bucket that had data. The provider-level ``status`` is the
+    *worst* window's status, and ``bottleneck_window`` is the bucket with the
+    highest ``used_pct``.
+    """
+    windows: list[dict] = []
     if a and a.get("status") == "ok":
         for grp in a.get("groups", []):
             gname = grp.get("name")
             for b in grp.get("buckets", []):
                 if b.get("used_pct") is not None:
-                    buckets.append((b["used_pct"], b.get("window"), gname, b.get("resets_at")))
+                    used = b["used_pct"]
+                    windows.append(
+                        {
+                            "label": b.get("label") or b.get("window", "?"),
+                            "window": b.get("window"),
+                            "group": gname,
+                            "used_pct": used,
+                            "status": classify(used),
+                            "resets_at": b.get("resets_at"),
+                        }
+                    )
 
-    if not buckets:
+    if not windows:
         return {
             "status": STATUS_UNKNOWN,
             "highest_used_pct": None,
             "bottleneck_window": None,
             "bottleneck_group": None,
             "resets_at": None,
+            "windows": [],
         }
 
-    used, window, gname, resets = max(buckets, key=lambda t: t[0])
+    bottleneck = max(windows, key=lambda x: x["used_pct"])
     return {
-        "status": classify(used),
-        "highest_used_pct": used,
-        "bottleneck_window": window,
-        "bottleneck_group": gname,
-        "resets_at": resets,
+        "status": bottleneck["status"],
+        "highest_used_pct": bottleneck["used_pct"],
+        "bottleneck_window": bottleneck["window"],
+        "bottleneck_group": bottleneck["group"],
+        "resets_at": bottleneck["resets_at"],
+        "windows": windows,
     }
 
 
@@ -214,20 +248,49 @@ def _bottleneck_desc(name: str, info: dict) -> str | None:
     return window
 
 
-def _provider_line(name: str, info: dict) -> str:
+def _window_line(win: dict, indent: str = "      ") -> str:
+    """Render a single window as a sub-line.
+
+    Claude:    ``5h: ⚠️ 79.0% used (resets in 2h 15m)``
+    Antigravity (grouped): ``Gemini Weekly: ✅ 7.5% used (resets in 2d 14h)``
+    """
+    status = win.get("status", STATUS_UNKNOWN)
+    icon = _STATUS_EMOJI.get(status, "❓")
+    used = win.get("used_pct")
+    if used is None:
+        return f"{indent}{win.get('label', '?')}: {icon} no data"
+    # Antigravity windows carry a "group" — prefix the label so the two
+    # groups (Gemini Models / Claude and GPT models) are distinguishable.
+    label = win.get("label", "?")
+    group = win.get("group")
+    if group:
+        label = f"{_short_group(group)} {label}"
+    parts = [f"{used:.1f}% used"]
+    if win.get("resets_at"):
+        parts.append(f"resets in {format_reset_in(win['resets_at'])}")
+    return f"{indent}{label}: {icon} {status} ({', '.join(parts)})"
+
+
+def _provider_block(name: str, info: dict) -> list[str]:
+    """Render a provider as a header line + one sub-line per window."""
     status = info.get("status", STATUS_UNKNOWN)
     icon = _STATUS_EMOJI.get(status, "❓")
     used = info.get("highest_used_pct")
     if used is None:
-        return f"{name}: {icon} {status} (no data)"
+        return [f"  {name}: {icon} {status} (no data)"]
 
-    parts = [f"{used:.1f}% used"]
+    header_parts = [f"{used:.1f}% used"]
     bottleneck = _bottleneck_desc(name, info)
     if bottleneck:
-        parts.append(f"{bottleneck} bottleneck")
+        header_parts.append(f"{bottleneck} bottleneck")
     if info.get("resets_at"):
-        parts.append(f"resets in {format_reset_in(info['resets_at'])}")
-    return f"{name}: {icon} {status} ({', '.join(parts)})"
+        header_parts.append(f"resets in {format_reset_in(info['resets_at'])}")
+    lines = [f"  {name}: {icon} {status} ({', '.join(header_parts)})"]
+
+    windows = info.get("windows") or []
+    for win in windows:
+        lines.append(_window_line(win))
+    return lines
 
 
 def _headline(recommended: str) -> str:
@@ -244,11 +307,11 @@ def format_recommendation(rec: dict) -> str:
     lines = [
         f"🎯 Recommendation: {_headline(rec.get('recommended_provider', 'none'))}",
         "",
-        "  " + _provider_line("Claude Code", providers.get("claude", {})),
-        "  " + _provider_line("Antigravity", providers.get("antigravity", {})),
-        "",
-        f"Reason: {rec.get('reason', '')}",
     ]
+    lines.extend(_provider_block("Claude Code", providers.get("claude", {})))
+    lines.extend(_provider_block("Antigravity", providers.get("antigravity", {})))
+    lines.append("")
+    lines.append(f"Reason: {rec.get('reason', '')}")
     alternatives = rec.get("alternatives") or []
     if alternatives:
         lines.append(f"Alternatives: {', '.join(alternatives)}")

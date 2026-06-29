@@ -167,6 +167,10 @@ def test_format_recommendation_short_group():
                 "highest_used_pct": 79.0,
                 "bottleneck_window": "5h",
                 "resets_at": None,
+                "windows": [
+                    {"label": "5h", "used_pct": 79.0, "status": "warning", "resets_at": None},
+                    {"label": "7d", "used_pct": 50.0, "status": "safe", "resets_at": None},
+                ],
             },
             "antigravity": {
                 "status": "safe",
@@ -174,6 +178,16 @@ def test_format_recommendation_short_group():
                 "bottleneck_window": "5h",
                 "bottleneck_group": "Gemini Models",
                 "resets_at": None,
+                "windows": [
+                    {
+                        "label": "Five Hour Limit",
+                        "window": "5h",
+                        "group": "Gemini Models",
+                        "used_pct": 45.0,
+                        "status": "safe",
+                        "resets_at": None,
+                    },
+                ],
             },
         },
         "recommended_provider": "antigravity",
@@ -184,6 +198,10 @@ def test_format_recommendation_short_group():
     # "Gemini Models" is shortened to "Gemini" and paired with its window.
     assert "Gemini 5h bottleneck" in text
     assert "5h bottleneck" in text  # Claude's window
+    # Per-window sub-lines are rendered.
+    assert "5h: ⚠️ warning (79.0% used)" in text
+    assert "7d: ✅ safe (50.0% used)" in text
+    assert "Gemini Five Hour Limit: ✅ safe (45.0% used)" in text
 
 
 def test_format_recommendation_none(monkeypatch):
@@ -191,3 +209,63 @@ def test_format_recommendation_none(monkeypatch):
     rec = recommend.get_recommendation()
     text = recommend.format_recommendation(rec)
     assert "All providers near their limit" in text
+
+
+def test_recommend_per_window_status(monkeypatch):
+    """Each window gets its own status, not just the bottleneck."""
+    # Claude: 5h=92% (critical), 7d=50% (safe)
+    # Antigravity: Gemini 5h=45% (safe), Gemini weekly=80% (warning)
+    agy = {
+        "status": "ok",
+        "highest_used_pct": 80,
+        "groups": [
+            {
+                "name": "Gemini Models",
+                "buckets": [
+                    {
+                        "label": "Five Hour Limit",
+                        "window": "5h",
+                        "used_pct": 45,
+                        "remaining_pct": 55,
+                        "resets_at": "2026-06-29T20:00:00Z",
+                    },
+                    {
+                        "label": "Weekly Limit",
+                        "window": "weekly",
+                        "used_pct": 80,
+                        "remaining_pct": 20,
+                        "resets_at": "2026-07-06T12:00:00Z",
+                    },
+                ],
+            }
+        ],
+    }
+    _patch(monkeypatch, _claude(92, 50), agy)
+    rec = recommend.get_recommendation()
+
+    # Claude windows: 5h critical, 7d safe
+    claude_windows = rec["providers"]["claude"]["windows"]
+    assert len(claude_windows) == 2
+    by_label = {w["label"]: w for w in claude_windows}
+    assert by_label["5h"]["status"] == "critical"
+    assert by_label["5h"]["used_pct"] == 92
+    assert by_label["7d"]["status"] == "safe"
+    assert by_label["7d"]["used_pct"] == 50
+
+    # Antigravity windows: 5h safe, weekly warning
+    agy_windows = rec["providers"]["antigravity"]["windows"]
+    assert len(agy_windows) == 2
+    by_w = {w["window"]: w for w in agy_windows}
+    assert by_w["5h"]["status"] == "safe"
+    assert by_w["weekly"]["status"] == "warning"
+
+    # Provider-level status = worst window's status
+    assert rec["providers"]["claude"]["status"] == "critical"
+    assert rec["providers"]["antigravity"]["status"] == "warning"
+
+    # Format renders per-window lines
+    text = recommend.format_recommendation(rec)
+    assert "5h: 🔴 critical (92.0% used" in text
+    assert "7d: ✅ safe (50.0% used" in text
+    assert "Gemini Five Hour Limit: ✅ safe (45.0% used" in text
+    assert "Gemini Weekly Limit: ⚠️ warning (80.0% used" in text
