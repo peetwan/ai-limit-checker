@@ -24,6 +24,7 @@
 - [JSON Output](#json-output)
 - [Example Output](#example-output)
 - [How It Works](#how-it-works)
+- [Auto Token Refresh](#auto-token-refresh)
 - [Programmatic API](#programmatic-api)
 - [CLI Reference](#cli-reference)
 - [Development](#development)
@@ -262,16 +263,20 @@ Status icons are based on **% used**: `✅` under 70%, `⚠️` 70–90%, `🔴`
 
 ## How It Works
 
+The library query flow integrates automatic token refresh to ensure checks never fail on expired credentials.
+
 ### Claude Code
 
 1. Reads OAuth credentials from `~/.claude/.credentials.json` (Windows/Linux) or macOS Keychain
-2. Calls the official Anthropic usage API to get 5h and 7d window data
+2. Proactively refreshes the OAuth access token if it has expired or is about to expire, or reactively refreshes and retries the request once if an HTTP 401 error occurs
+3. Calls the official Anthropic usage API to get 5h and 7d window data
 
 ### Antigravity CLI
 
 1. Reads OAuth credentials from Windows Credential Manager (`gemini:antigravity`) or `~/.gemini/oauth_creds.json`
-2. Calls `daily-cloudcode-pa.googleapis.com` — the same endpoint the Antigravity desktop app uses
-3. Fetches tier info via `loadCodeAssist`, then per-model-group quota buckets
+2. Obtains a valid access token, renewing it proactively if expired, or reactively refreshing and retrying the sequence if a call returns an HTTP 401 error
+3. Calls `daily-cloudcode-pa.googleapis.com` — the same endpoint the Antigravity desktop app uses
+4. Fetches tier info via `loadCodeAssist`, then per-model-group quota buckets
 
 > **Why `daily-` prefix?** The base endpoint `cloudcode-pa.googleapis.com` always returns `remainingFraction: 1` (100% remaining) regardless of actual usage. The `daily-` prefixed host returns real-time usage data that matches the desktop app's "Weekly Limit" / "Five Hour Limit" readouts.
 
@@ -282,6 +287,20 @@ Usage is reported as **% used**, matching the Antigravity desktop app. Models ar
 **Tier note:** `loadCodeAssist` returns two tiers. `currentTier` is the Cloud Code Assist *API* tier — always `free-tier` for consumer (non-GCP) accounts, regardless of any Google One AI subscription. `paidTier` carries the real subscription (e.g. *Google AI Ultra*) and only appears when one exists, so the tool prefers it. The raw API tier is still available as `api_tier_id` in `--json` output. Accounts with no Google One AI plan correctly show `Antigravity (free-tier)`.
 
 **Why "Gemini Models" can sit at `0.0%`:** on a *Google AI Ultra* account the Gemini group is effectively unmetered — the server reports `remainingFraction` of exactly `1` no matter how much you use Gemini (verified against a run that consumed millions of Gemini tokens). Only the third-party group (*Claude and GPT*) is metered and moves. So a Gemini group stuck at `0.0% used` after heavy Antigravity use is expected, not a bug. Genuinely tiny usage (under 0.1%) is shown as `<0.1% used` to distinguish it from an untouched `0.0%` limit, and the raw `remaining_fraction` (0–1, full precision) is included per bucket in `--json` output.
+
+## Auto Token Refresh
+
+To prevent authentication errors (such as HTTP 401 Unauthorized), the library handles OAuth token renewal automatically for both tools:
+
+### Claude Code
+- *Proactive refresh*: If the access token's `expiresAt` timestamp (stored in milliseconds) is within 1 minute of expiring, a fresh access token is retrieved using the refresh token before making the usage API call.
+- *Reactive refresh*: If the usage API call still returns an HTTP 401 error, the library automatically exchanges the refresh token for a new access token and retries the request once.
+- *Token-only recovery*: If only a refresh token is present, the library proactively performs a refresh to obtain an access token before fetching usage data.
+
+### Antigravity CLI
+- *Proactive refresh*: The library checks `expiry_epoch` in the credentials and automatically retrieves a fresh access token if it is expired or close to expiration.
+- *Reactive refresh / 401 retry*: If any API call (`loadCodeAssist` or `retrieveUserQuotaSummary`) returns an HTTP 401 error, the library will refresh the access token using the refresh token and retry the sequence once.
+- *Credential discovery*: Client credentials (client ID and client secret) are auto-extracted from the `agy` binary at runtime (or retrieved from env vars) to perform the refresh.
 
 ## Supported Tools
 
@@ -359,7 +378,7 @@ python -m ai_limit_checker --json
 
 ### Testing
 
-The test suite uses `pytest` with 86 tests covering:
+The test suite uses `pytest` with 96 tests covering:
 
 - Credential parsing (Claude & Antigravity)
 - API response parsing and normalization
