@@ -107,6 +107,22 @@ def test_format_human_sections():
     assert "93.0% used" in out
 
 
+def test_used_text_true_zero():
+    # remaining_fraction exactly 1 -> the limit is genuinely untouched.
+    assert cli._used_text({"used_pct": 0.0, "remaining_fraction": 1}) == "  0.0% used"
+
+
+def test_used_text_tiny_nonzero_shows_threshold():
+    # Real-but-tiny usage (rounds to 0.0%) must not look identical to an
+    # untouched limit.
+    assert cli._used_text({"used_pct": 0.0, "remaining_fraction": 0.9996}) == " <0.1% used"
+
+
+def test_used_text_normal_and_missing():
+    assert cli._used_text({"used_pct": 1.6, "remaining_fraction": 0.984}) == "  1.6% used"
+    assert cli._used_text({"used_pct": None}) == "    ? used"
+
+
 def test_tier_label_free_shows_id():
     assert cli._tier_label({"tier": "Antigravity", "tier_id": "free-tier"}) == "Antigravity (free-tier)"
 

@@ -76,6 +76,34 @@ def test_parse_quota_summary_used_pct():
     assert five_hour["used_pct"] == 95.0  # 1 - 0.05
 
 
+def test_parse_quota_summary_keeps_raw_fraction():
+    # The raw 0-1 fraction is preserved at full precision so callers can tell a
+    # genuinely-empty bucket (exactly 1) from a tiny-but-nonzero one.
+    groups = antigravity.parse_quota_summary(QUOTA_SUMMARY)
+    gemini, third_party = groups
+    assert gemini["buckets"][0]["remaining_fraction"] == 1  # untouched bucket
+    assert third_party["buckets"][0]["remaining_fraction"] == 0.07
+    assert third_party["buckets"][1]["remaining_fraction"] == 0.05
+
+
+def test_parse_quota_summary_tiny_usage_not_rounded_away():
+    # A fraction just under 1 rounds to 0.0% used, but the raw fraction must stay
+    # below 1 so the distinction survives to the display layer.
+    data = {
+        "groups": [
+            {
+                "displayName": "Gemini Models",
+                "buckets": [
+                    {"displayName": "Weekly Limit", "window": "weekly", "remainingFraction": 0.9996},
+                ],
+            }
+        ]
+    }
+    bucket = antigravity.parse_quota_summary(data)[0]["buckets"][0]
+    assert bucket["used_pct"] == 0.0  # 0.04% rounds down
+    assert bucket["remaining_fraction"] == 0.9996  # but the truth is preserved
+
+
 def test_parse_quota_summary_empty():
     assert antigravity.parse_quota_summary({}) == []
     assert antigravity.parse_quota_summary({"groups": None}) == []

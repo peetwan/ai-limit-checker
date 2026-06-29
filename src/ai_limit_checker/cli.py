@@ -164,13 +164,28 @@ def _bucket_lines(buckets: list[dict]) -> list[str]:
     lines = []
     for b in buckets:
         label = (b.get("label", "Limit") + ":").ljust(17)
-        used = b.get("used_pct")
-        used_txt = f"{used:>5.1f}% used" if used is not None else "    ? used"
-        line = f"    {label}{used_txt}"
+        line = f"    {label}{_used_text(b)}"
         if b.get("resets_at"):
             line += f" → resets in {format_reset_in(b['resets_at'])}"
         lines.append(line)
     return lines
+
+
+def _used_text(b: dict) -> str:
+    """Render the "X% used" cell, distinguishing true-zero from rounded-zero.
+
+    A bucket that rounds to ``0.0%`` but has a nonzero raw fraction (any usage
+    under 0.05%) is shown as ``<0.1% used`` so real-but-tiny consumption doesn't
+    look identical to an untouched limit. ``0.0% used`` is reserved for a bucket
+    the server reports as exactly full (``remainingFraction == 1``).
+    """
+    used = b.get("used_pct")
+    if used is None:
+        return "    ? used"
+    fraction = b.get("remaining_fraction")
+    if used == 0.0 and fraction is not None and fraction < 1.0:
+        return f"{'<0.1%':>6} used"
+    return f"{used:>5.1f}% used"
 
 
 def _window_text(w: dict, show_reset: bool = True) -> str:

@@ -61,6 +61,16 @@ aichecker --oneline
 > tool prefers it. The raw API tier is still available as `api_tier_id` in
 > `--json` output. Accounts with no Google One AI plan correctly show
 > `Antigravity (free-tier)`.
+>
+> **Why "Gemini Models" can sit at `0.0%`:** on a *Google AI Ultra* account the
+> Gemini group is effectively unmetered — the server reports `remainingFraction`
+> of exactly `1` no matter how much you use Gemini (verified against a run that
+> consumed millions of Gemini tokens). Only the third-party group (*Claude and
+> GPT*) is metered and moves. So a Gemini group stuck at `0.0% used` after heavy
+> Antigravity use is expected, not a bug. Genuinely tiny usage (under 0.1%) is
+> shown as `<0.1% used` to distinguish it from an untouched `0.0%` limit, and the
+> raw `remaining_fraction` (0-1, full precision) is included per bucket in
+> `--json` output.
 
 ## JSON Output (for AI agents)
 
