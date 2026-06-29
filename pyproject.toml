@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-limit-checker"
+version = "0.1.0"
+description = "Check usage limits for Claude Code and Antigravity CLI from terminal"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Peet Chanut", email = "chanut.w@fiardesign.com" }]
+keywords = ["claude", "claude-code", "antigravity", "agy", "usage", "quota", "limit", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.scripts]
+aichecker = "ai_limit_checker.cli:main"
+ailimits = "ai_limit_checker.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/peetwan/ai-limit-checker"
+Repository = "https://github.com/peetwan/ai-limit-checker"
+Issues = "https://github.com/peetwan/ai-limit-checker/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_limit_checker"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["tests", "data-example", "*.html"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
