@@ -143,11 +143,13 @@ def test_get_access_token_missing_refreshes(monkeypatch):
 
 
 def test_refresh_access_token_ok(monkeypatch):
+    monkeypatch.setattr(antigravity, "_resolve_oauth_client", lambda: ("CID", "SECRET"))
     monkeypatch.setattr(utils, "http_form", lambda *a, **k: (200, {"access_token": "NEW"}))
     assert antigravity.refresh_access_token("RT") == "NEW"
 
 
 def test_refresh_access_token_failure(monkeypatch):
+    monkeypatch.setattr(antigravity, "_resolve_oauth_client", lambda: ("CID", "SECRET"))
     monkeypatch.setattr(utils, "http_form", lambda *a, **k: (400, {"error": "invalid_grant"}))
     with pytest.raises(RuntimeError):
         antigravity.refresh_access_token("RT")

@@ -1,6 +1,8 @@
-# AI Limit Checker
-
 <div align="center">
+
+<img src="docs/assets/hero.png" alt="AI Limit Checker" width="100%">
+
+# AI Limit Checker
 
 **Check usage limits for Claude Code and Antigravity CLI from your terminal.**
 
@@ -12,6 +14,20 @@
 </div>
 
 ---
+
+## Contents
+
+- [Features](#-features)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Watch Mode](#watch-mode)
+- [JSON Output](#json-output)
+- [Example Output](#example-output)
+- [How It Works](#how-it-works)
+- [Programmatic API](#programmatic-api)
+- [CLI Reference](#cli-reference)
+- [Development](#development)
+- [License](#license)
 
 ## ✨ Features
 
@@ -238,8 +254,10 @@ Returns structured JSON with all limits, remaining percentages, and reset timest
 One-liner mode (`--oneline`):
 
 ```
-Claude: 1.0% (5h) 🟢 | 56.0% (7d) 🟡 | Antigravity: 95.0% used 🔴
+Claude: 1.0% (5h) ✅ | 56.0% (7d) ✅ | Antigravity: 95.0% used 🔴
 ```
+
+Status icons are based on **% used**: `✅` under 70%, `⚠️` 70–90%, `🔴` 90–100%, `❌` at/over 100% or on error.
 
 ## How It Works
 
