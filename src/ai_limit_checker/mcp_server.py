@@ -33,6 +33,9 @@ PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "ai-limit-checker"
 SERVER_VERSION = "0.9.0"
 
+_initialized = False
+
+
 # Tool definitions exposed to the agent
 TOOLS: list[dict[str, Any]] = [
     {
@@ -115,10 +118,37 @@ def _make_error(req_id: Any, code: int, message: str, data: Any = None) -> dict:
     return {"jsonrpc": "2.0", "id": req_id, "error": error}
 
 
-def _handle_request(msg: dict) -> dict | None:
+def _handle_request(msg: Any) -> dict[str, Any] | None:
     """Process a single JSON-RPC request and return a response (or None for notifications)."""
-    method = msg.get("method", "")
+    global _initialized
+
+    if not isinstance(msg, dict):
+        return _make_error(None, -32600, "Invalid Request")
+
     req_id = msg.get("id")
+    is_notification = "id" not in msg
+
+    # Validate jsonrpc version
+    if msg.get("jsonrpc") != "2.0":
+        if is_notification:
+            return None
+        return _make_error(req_id, -32600, "Invalid Request")
+
+    method = msg.get("method", "")
+
+    # Handle notifications/initialized and initialized
+    if method in ("initialized", "notifications/initialized"):
+        _initialized = True
+        return None
+
+    if is_notification:
+        # Any other notification: do not reply
+        return None
+
+    # Track Initialization State
+    if not _initialized and method not in ("initialize", "ping"):
+        return _make_error(req_id, -32002, "Server not initialized")
+
     params = msg.get("params", {})
 
     # --- lifecycle methods ---
@@ -132,10 +162,6 @@ def _handle_request(msg: dict) -> dict | None:
             },
         )
 
-    if method == "initialized" or method == "notifications/initialized":
-        # Notification — no response needed
-        return None
-
     if method == "ping":
         return _make_response(req_id, {})
 
@@ -144,14 +170,45 @@ def _handle_request(msg: dict) -> dict | None:
         return _make_response(req_id, {"tools": TOOLS})
 
     if method == "tools/call":
-        tool_name = params.get("name", "")
+        if not isinstance(params, dict):
+            return _make_error(req_id, -32602, "params must be a dictionary")
+
+        if "name" not in params:
+            return _make_error(req_id, -32602, "name parameter is required")
+
+        tool_name = params.get("name")
+        if not isinstance(tool_name, str):
+            return _make_error(req_id, -32602, "name parameter must be a string")
+
         handler = _TOOL_HANDLERS.get(tool_name)
         if handler is None:
-            return _make_error(req_id, -32601, f"Unknown tool: {tool_name}")
-        try:
-            tool_args = params.get("arguments", {})
-            if not isinstance(tool_args, dict):
+            return _make_error(req_id, -32602, f"Unknown tool: {tool_name}")
+
+        # Enforce arguments validation
+        if "arguments" in params:
+            tool_args = params["arguments"]
+            if tool_args is not None and not isinstance(tool_args, dict):
+                return _make_error(req_id, -32602, "arguments must be a dictionary")
+            if tool_args is None:
                 tool_args = {}
+        else:
+            tool_args = {}
+
+        # Validate arguments for specific tools
+        if (
+            tool_name == "get_limits"
+            and "no_cache" in tool_args
+            and not isinstance(tool_args["no_cache"], bool)
+        ):
+            return _make_error(req_id, -32602, "no_cache must be a boolean")
+        if (
+            tool_name == "get_burn_rate"
+            and "fresh" in tool_args
+            and not isinstance(tool_args["fresh"], bool)
+        ):
+            return _make_error(req_id, -32602, "fresh must be a boolean")
+
+        try:
             output = handler(tool_args)
             # MCP expects content blocks in the result
             text = json.dumps(output["result"], indent=2)
@@ -160,7 +217,13 @@ def _handle_request(msg: dict) -> dict | None:
                 {"content": [{"type": "text", "text": text}]},
             )
         except Exception as exc:  # noqa: BLE001 — surface all errors to the agent
-            return _make_error(req_id, -32603, f"Tool execution error: {exc}")
+            return _make_response(
+                req_id,
+                {
+                    "content": [{"type": "text", "text": f"Tool execution error: {exc}"}],
+                    "isError": True,
+                },
+            )
 
     return _make_error(req_id, -32601, f"Unknown method: {method}")
 
