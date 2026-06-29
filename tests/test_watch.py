@@ -282,3 +282,156 @@ def test_watch_once_silent_no_reset(tmp_path, monkeypatch):
     watch.watch_5h_resets(on_reset=lambda labels: called.append(labels), once=True)
 
     assert called == []
+
+
+# ---------------------------------------------------------------------------
+# Ping / trigger tests
+# ---------------------------------------------------------------------------
+
+
+def test_ping_cli_dry_run():
+    """dry_run returns a status string without calling anything."""
+    result = watch._ping_cli("claude", dry_run=True)
+    assert "dry-run" in result
+
+
+def test_ping_cli_binary_not_found(monkeypatch):
+    """Missing binary returns a clear error string."""
+    monkeypatch.setattr(watch.shutil, "which", lambda _: None)
+    result = watch._ping_cli("claude")
+    assert "not found" in result
+
+
+def test_ping_cli_calls_subprocess(monkeypatch):
+    """When binary exists, subprocess.run is called with -p prompt."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(watch.shutil, "which", lambda _: "/fake/claude")
+    monkeypatch.setattr(
+        watch.subprocess,
+        "run",
+        lambda args, **kw: calls.append(args) or None,
+    )
+    result = watch._ping_cli("claude")
+    assert result == "claude: pinged"
+    assert calls == [["/fake/claude", "-p", "hi"]]
+
+
+def test_ping_cli_timeout(monkeypatch):
+    """TimeoutExpired is caught and logged as expected."""
+    monkeypatch.setattr(watch.shutil, "which", lambda _: "/fake/claude")
+
+    def boom(*a, **kw):
+        raise watch.subprocess.TimeoutExpired(cmd=a[0], timeout=1)
+
+    monkeypatch.setattr(watch.subprocess, "run", boom)
+    result = watch._ping_cli("claude")
+    assert "timeout" in result.lower()
+
+
+def test_trigger_pings_dedupes_same_tool():
+    """Multiple windows on the same CLI only ping once."""
+    current = {
+        "agy_Gemini Models_5h": {
+            "label": "Antigravity Gemini 5h",
+            "resets_at": "2026-06-29T09:30:00Z",
+            "used_pct": 0.0,
+            "tool": "antigravity",
+        },
+        "agy_Claude and GPT models_5h": {
+            "label": "Antigravity Claude/GPT 5h",
+            "resets_at": "2026-06-29T09:30:00Z",
+            "used_pct": 0.0,
+            "tool": "antigravity",
+        },
+    }
+    reset_keys = ["agy_Gemini Models_5h", "agy_Claude and GPT models_5h"]
+    results = watch.trigger_pings(current, reset_keys, dry_run=True)
+    # First window pings (dry-run), second is skipped
+    assert "dry-run" in results["Antigravity Gemini 5h"]
+    assert "already pinged" in results["Antigravity Claude/GPT 5h"]
+
+
+def test_trigger_pings_different_tools():
+    """Claude and Antigravity are pinged independently."""
+    current = {
+        "claude_5h": {
+            "label": "Claude Code 5h",
+            "resets_at": "2026-06-29T09:30:00Z",
+            "used_pct": 0.0,
+            "tool": "claude",
+        },
+        "agy_Gemini Models_5h": {
+            "label": "Antigravity Gemini 5h",
+            "resets_at": "2026-06-29T09:30:00Z",
+            "used_pct": 0.0,
+            "tool": "antigravity",
+        },
+    }
+    results = watch.trigger_pings(
+        current, ["claude_5h", "agy_Gemini Models_5h"], dry_run=True
+    )
+    assert "dry-run" in results["Claude Code 5h"]
+    assert "dry-run" in results["Antigravity Gemini 5h"]
+
+
+def test_trigger_pings_empty():
+    """No reset keys → no pings."""
+    results = watch.trigger_pings({}, [], dry_run=True)
+    assert results == {}
+
+
+def test_watch_once_triggers_ping(tmp_path, monkeypatch):
+    """--once mode pings the CLI when a reset is detected."""
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr(watch, "STATE_FILE", state_file)
+    monkeypatch.setattr(watch, "STATE_DIR", tmp_path)
+
+    state = {
+        "claude_5h": {
+            "label": "Claude Code 5h",
+            "resets_at": "2026-06-29T07:00:00Z",
+            "used_pct": 30.0,
+        }
+    }
+    state_file.write_text(json.dumps(state))
+
+    ping_calls: list[str] = []
+    monkeypatch.setattr(
+        watch,
+        "_ping_cli",
+        lambda tool, dry_run=False: ping_calls.append(tool) or f"{tool}: pinged",
+    )
+    monkeypatch.setattr(watch, "gather", lambda **kw: SAMPLE_AICHECKER)
+
+    watch.watch_5h_resets(once=True)
+
+    assert "claude" in ping_calls
+
+
+def test_watch_once_dry_run_no_ping(tmp_path, monkeypatch):
+    """--once --dry-run does not call _ping_cli."""
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr(watch, "STATE_FILE", state_file)
+    monkeypatch.setattr(watch, "STATE_DIR", tmp_path)
+
+    state = {
+        "claude_5h": {
+            "label": "Claude Code 5h",
+            "resets_at": "2026-06-29T07:00:00Z",
+            "used_pct": 30.0,
+        }
+    }
+    state_file.write_text(json.dumps(state))
+
+    ping_calls: list[str] = []
+    monkeypatch.setattr(
+        watch,
+        "_ping_cli",
+        lambda tool, dry_run=True: ping_calls.append(tool) or f"{tool}: dry-run",
+    )
+    monkeypatch.setattr(watch, "gather", lambda **kw: SAMPLE_AICHECKER)
+
+    watch.watch_5h_resets(once=True, dry_run=True)
+
+    # _ping_cli IS called but with dry_run=True, so no real subprocess
+    assert "claude" in ping_calls

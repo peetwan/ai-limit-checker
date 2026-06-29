@@ -269,6 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Watch mode: run a single check and exit (for cron/scheduled use)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Watch mode: log what would happen without calling the CLIs",
+    )
     parser.add_argument("--version", action="version", version=f"ai-limit-checker {__version__}")
     return parser
 
@@ -283,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
             interval=args.interval,
             delay=args.delay,
             once=args.once,
+            dry_run=args.dry_run,
         )
         return 0
 

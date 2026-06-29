@@ -7,7 +7,7 @@
 [![PyPI](https://img.shields.io/pypi/v/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![Python](https://img.shields.io/pypi/pyversions/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-77%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-86%20passed-brightgreen.svg)](#testing)
 
 </div>
 
@@ -55,12 +55,12 @@ Two command names are available — `aichecker` and `ailimits` — both invoke t
 
 ## Watch Mode
 
-Watch mode polls usage every 5 minutes and prints a message when a **5h limit window resets** — so you know the moment your quota refreshes and can resume work.
+Watch mode polls usage every 5 minutes and **automatically sends a ping** to the CLI when a **5h limit window resets** — triggering a fresh usage window so you can resume work immediately.
 
 ### CLI
 
 ```bash
-# Run continuously (polls every 5 min, prints on reset)
+# Run continuously (polls every 5 min, pings on reset)
 aichecker --watch
 
 # Single check — perfect for cron jobs
@@ -68,16 +68,21 @@ aichecker --watch --once
 
 # Customise poll interval and post-reset delay
 aichecker --watch --interval 60 --delay 30
+
+# Dry-run — log what would happen without calling the CLIs
+aichecker --watch --once --dry-run
 ```
 
 **How it works:**
 
 1. Every poll, the tool records each 5h window's `resets_at` timestamp and `used_pct`
 2. When `now >= resets_at + delay` (default 120s) **and** the window had usage > 0% before, a reset is detected
-3. A message is printed (or your callback is invoked)
+3. A trivial prompt (`"hi"`) is sent to `claude -p` or `agy -p` to trigger a new 5h usage window
 4. State is persisted to `~/.cache/ai-limit-checker/watch_state.json` across restarts
 
 The 2-minute delay ensures the server has fully refreshed before triggering.
+
+> **Deduplication:** if both Gemini and Claude/GPT groups on Antigravity reset at the same time, only one ping is sent to `agy` (they share the same 5h window on the same CLI).
 
 ### Cron setup
 
@@ -95,23 +100,28 @@ The tool stays silent when no reset has occurred (empty stdout = nothing to repo
 ```python
 from ai_limit_checker.watch import watch_5h_resets
 
-# Built-in: prints to stdout on reset
+# Built-in: pings the CLI and prints to stdout on reset
 watch_5h_resets(once=True)
 
 # Custom callback — send to Discord, Telegram, Slack, etc.
+# (the CLI ping still happens automatically; this is for extra notifications)
 def on_reset(reset_labels: list[str]) -> None:
     msg = f"🔄 Limits reset: {', '.join(reset_labels)}"
     send_to_discord(msg)  # your notification function
 
 watch_5h_resets(on_reset=on_reset, interval=300, delay=120, once=True)
+
+# Dry-run mode — log without calling the CLIs (for testing)
+watch_5h_resets(once=True, dry_run=True)
 ```
 
 | Parameter   | Type             | Default | Description                                          |
 | ----------- | ---------------- | ------- | --------------------------------------------------- |
-| `on_reset`  | `Callable \| None` | `None`  | Callback receiving a list of reset window labels. If `None`, prints to stdout. |
+| `on_reset`  | `Callable \| None` | `None`  | Callback receiving a list of reset window labels. If `None`, prints to stdout. The CLI ping happens regardless. |
 | `interval`  | `int`            | `300`   | Seconds between polls (when not `--once`).           |
 | `delay`     | `int`            | `120`   | Seconds to wait after `resets_at` before triggering. |
 | `once`      | `bool`           | `False` | Run a single check and exit (for cron/scheduled use). |
+| `dry_run`   | `bool`           | `False` | Log what would happen without calling the CLIs. |
 
 ## JSON Output
 
@@ -299,10 +309,11 @@ Options:
   --claude            Check only Claude Code
   --antigravity       Check only Antigravity CLI
   --no-cache          Ignore the 60s result cache
-  --watch             Watch mode: poll and print on 5h limit reset
+  --watch             Watch mode: poll and ping CLI on 5h limit reset
   --once              Watch mode: single check (for cron)
   --interval SECONDS  Watch mode: poll interval (default 300)
   --delay SECONDS     Watch mode: delay after reset before triggering (default 120)
+  --dry-run           Watch mode: log without calling the CLIs
   --version           Show version
   -h, --help          Show help
 ```
@@ -329,12 +340,12 @@ python -m ai_limit_checker --json
 
 ### Testing
 
-The test suite uses `pytest` with 77 tests covering:
+The test suite uses `pytest` with 86 tests covering:
 
 - Credential parsing (Claude & Antigravity)
 - API response parsing and normalization
 - Output formatting (human, JSON, one-liner)
-- Watch mode: reset detection, state persistence, callback invocation
+- Watch mode: reset detection, state persistence, CLI ping triggering, deduplication, dry-run
 - Edge cases: missing credentials, API errors, unmetered groups, zero-usage rounding
 
 ```bash
