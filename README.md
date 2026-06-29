@@ -9,7 +9,7 @@
 [![PyPI](https://img.shields.io/pypi/v/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![Python](https://img.shields.io/pypi/pyversions/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-169%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-180%20passed-brightgreen.svg)](#testing)
 
 </div>
 
@@ -22,9 +22,9 @@
 - [Quick Start](#quick-start)
 - [Watch Mode](#watch-mode)
 - [JSON Output](#json-output)
-- [Example Output](#example-output)
-- [History](#history)
 - [Recommendation](#recommendation)
+- [History](#history)
+- [Example Output](#example-output)
 - [MCP Server](#mcp-server)
 - [How It Works](#how-it-works)
 - [Auto Token Refresh](#auto-token-refresh)
@@ -39,8 +39,8 @@
 - **Antigravity CLI** — Per-group (Gemini / Claude+GPT) weekly + five-hour limits
 - **Auto token refresh** — Both Claude and Antigravity OAuth tokens are automatically refreshed when expired (no more 401 errors)
 - **Watch mode** — Automatically detect when a 5h limit resets and notify you
-- **History** — View stored usage as a per-window timeseries to spot trends
-- **Recommendation** — Get told which provider to use next based on current headroom
+- **History log** — view usage timeseries with `--history`
+- **Auto-switch recommendation** — multi-factor scoring suggests which provider to use next
 - **MCP server** — Query usage from AI agents over the Model Context Protocol
 - **JSON output** — Structured output for AI agents (Hermes, Claude Code, etc.)
 - **Zero dependencies** — Pure Python stdlib, no pip conflicts
@@ -230,6 +230,76 @@ Returns structured JSON with all limits, remaining percentages, and reset timest
 
 </details>
 
+## Recommendation
+
+`aichecker --recommend` shows a recommendation based on multi-factor scoring to help you choose which provider to use next.
+
+### Scoring Criteria
+
+The 0-100 composite score is calculated using four weighted factors:
+- `Severity (35%)` — Safe (100), Warning (50), Critical (15), Exhausted (0), Unknown (0)
+- `Headroom (30%)` — Lowest remaining percentage across all limit windows
+- `Reset Proximity (20%)` — How soon the worst window resets (imminent resets score higher to encourage waiting/resuming soon)
+- `Burn Rate (15%)` — Real-time velocity from usage history (slower usage scores higher)
+
+Each provider gets a 0-100 score; a difference > 10 determines a clear winner, while a difference < 10 suggests that either is fine to use.
+
+### Exclude Groups
+
+By default, the `Claude and GPT models` group on Antigravity is excluded from analysis (since users usually have a separate direct Claude Code subscription). You can configure exclusions using `exclude_groups` in the programmatic API or MCP server.
+
+### Usage
+
+```bash
+aichecker --recommend
+```
+
+```
+🎯 Recommendation: Switch to Antigravity
+
+  Claude Code: ⚠️ warning (79.0% used, 5h bottleneck, resets in 2h 15m) — score: 52
+      5h: ⚠️ warning (79.0% used, resets in 2h 15m)
+      7d: ✅ safe (50.0% used, resets in 2d 9h)
+  Antigravity: ✅ safe (7.5% used, Gemini weekly bottleneck, resets in 2d 14h) — score: 88
+      Gemini Weekly Limit: ✅ safe (7.5% used, resets in 2d 14h)
+      Gemini Five Hour Limit: ✅ safe (0.0% used, resets in 4h 59m)
+
+Reason: Antigravity scores higher (88 vs 52). Claude is 36 points lower.
+```
+
+The recommendation is based on a score difference threshold: when scores are within 10 points it returns *either*, otherwise it suggests the clear winner. If both are exhausted or unavailable, it returns *none*. Add `--json` for the structured form (which contains a detailed `score_breakdown`).
+
+## History
+
+`aichecker --history` shows usage snapshots over time to help you spot trends. Every `aichecker` run (and every `--burn-rate` call) appends a usage snapshot to a rolling per-window history stored at `~/.cache/ai-limit-checker/burn_rate.json` (last 50 samples per window).
+
+### Usage
+
+```bash
+# Show all windows
+aichecker --history
+
+# Filter history to a specific window
+aichecker --history --window claude_five_hour
+
+# Filter history by time (also accepts 30m, 2d, or a raw unix timestamp)
+aichecker --history --since 1h
+
+# Clear usage history (optionally scoped with --window)
+aichecker --history --clear
+```
+
+### Example Output
+
+```
+Claude 5h  (3 samples)
+  2026-06-29 12:00  45.0% used
+  2026-06-29 12:30  52.0% used  (+7.0)
+  2026-06-29 13:00  58.0% used  (+6.0)
+```
+
+The value in parentheses is the change from the previous sample. History needs a few runs to build up — a single run records one sample per window. Add `--json` for the raw snapshot arrays.
+
 ## Example Output
 
 ```
@@ -267,68 +337,6 @@ Claude: 1.0% (5h) ✅ | 56.0% (7d) ✅ | Antigravity: 95.0% used 🔴
 
 Status icons are based on **% used**: `✅` under 70%, `⚠️` 70–90%, `🔴` 90–100%, `❌` at/over 100% or on error.
 
-## History
-
-Every `aichecker` run (and every `--burn-rate` call) appends a usage snapshot to a rolling per-window history stored at `~/.cache/ai-limit-checker/burn_rate.json` (last 50 samples per window). `--history` renders that series as a timeseries, so you can see how a limit has trended over time rather than just its current value.
-
-```bash
-# Show all windows
-aichecker --history
-
-# Filter to a single window
-aichecker --history --window claude_five_hour
-
-# Only snapshots from the last hour (also accepts 30m, 2d, or a raw unix timestamp)
-aichecker --history --since 1h
-
-# Clear stored history (optionally scoped with --window)
-aichecker --history --clear
-```
-
-```
-Claude 5h  (3 samples)
-  2026-06-29 12:00  45.0% used
-  2026-06-29 12:30  52.0% used  (+7.0)
-  2026-06-29 13:00  58.0% used  (+6.0)
-```
-
-The value in parentheses is the change from the previous sample. History needs a few runs to build up — a single run records one sample per window. Add `--json` for the raw snapshot arrays.
-
-## Recommendation
-
-`--recommend` analyses current usage across both providers, computes a multi-factor score (0-100) for each, and recommends which to use next.
-
-### Scoring Criteria
-
-The 0-100 composite score is calculated using four weighted factors:
-- `Severity (35%)`: Safe (100), Warning (50), Critical (15), Exhausted (0), Unknown (0)
-- `Headroom (30%)`: Lowest remaining percentage across all limit windows
-- `Reset Proximity (20%)`: How soon the worst window resets (imminent resets score higher to encourage waiting/resuming soon)
-- `Burn Rate (15%)`: Real-time velocity from usage history (slower usage scores higher)
-
-### Exclude Groups
-
-By default, the `Claude and GPT models` group on Antigravity is excluded from analysis (since users usually have a separate direct Claude Code subscription). You can customize this or include all groups via the programmatic API or MCP server parameters.
-
-```bash
-aichecker --recommend
-```
-
-```
-🎯 Recommendation: Switch to Antigravity
-
-  Claude Code: ⚠️ warning (79.0% used, 5h bottleneck, resets in 2h 15m) — score: 52
-      5h: ⚠️ warning (79.0% used, resets in 2h 15m)
-      7d: ✅ safe (50.0% used, resets in 2d 9h)
-  Antigravity: ✅ safe (7.5% used, Gemini weekly bottleneck, resets in 2d 14h) — score: 88
-      Gemini Weekly Limit: ✅ safe (7.5% used, resets in 2d 14h)
-      Gemini Five Hour Limit: ✅ safe (0.0% used, resets in 4h 59m)
-
-Reason: Antigravity scores higher (88 vs 52). Claude is 36 points lower.
-```
-
-The recommendation is based on a score difference threshold: when scores are within 10 points it returns *either*, otherwise it suggests the clear winner. If both are exhausted or unavailable, it returns *none*. Add `--json` for the structured form (which contains a detailed `score_breakdown`).
-
 ## MCP Server
 
 The package ships a zero-dependency [MCP](https://modelcontextprotocol.io) server (JSON-RPC over stdio), so AI agents (Claude Code, Hermes, etc.) can query usage directly instead of shelling out:
@@ -340,11 +348,11 @@ aichecker --mcp
 It exposes four tools:
 
 | Tool                 | Purpose                                                      |
-| -------------------- | ----------------------------------------------------------- |
-| `get_limits`         | Current usage for both tools (same data as `--json`)        |
-| `get_burn_rate`      | Usage velocity and estimated time to each limit             |
-| `get_history`        | Stored snapshot timeseries for trend analysis               |
-| `get_recommendation` | Which provider to use next, with per-window bottleneck info |
+| -------------------- | ------------------------------------------------------------ |
+| `get_limits`         | current usage data                                           |
+| `get_burn_rate`      | burn rate analysis                                           |
+| `get_history`        | usage history timeseries                                     |
+| `get_recommendation` | provider recommendation with multi-factor scoring           |
 
 ## How It Works
 
@@ -438,11 +446,11 @@ Options:
   --delay SECONDS     Watch mode: delay after reset before triggering (default 120)
   --dry-run           Watch mode: log without calling the CLIs
   --burn-rate         Show usage velocity and estimated time to each limit
-  --history           Show stored usage history as a timeseries
-  --window WINDOW     With --history: filter to a single window id
-  --since DURATION    With --history: only snapshots within 30m/2h/1d or after an epoch
-  --clear             With --history: clear stored history and exit
-  --recommend         Recommend which provider to use next
+  --history            Show usage history (timeseries)
+  --window WINDOW      Filter history to a specific window
+  --since DURATION     Filter history (e.g. 1h, 30m, 2d)
+  --clear              Clear usage history
+  --recommend          Show provider recommendation
   --mcp               Start as an MCP server (JSON-RPC over stdio)
   --version           Show version
   -h, --help          Show help
@@ -470,7 +478,7 @@ python -m ai_limit_checker --json
 
 ### Testing
 
-The test suite uses `pytest` with 169 tests covering:
+The test suite uses `pytest` with 180 tests covering:
 
 - Credential parsing (Claude & Antigravity)
 - API response parsing and normalization
