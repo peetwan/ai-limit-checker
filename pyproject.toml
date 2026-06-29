@@ -26,6 +26,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+test = ["pytest>=7.0", "ruff>=0.5"]
+
 [project.scripts]
 aichecker = "ai_limit_checker.cli:main"
 ailimits = "ai_limit_checker.cli:main"
