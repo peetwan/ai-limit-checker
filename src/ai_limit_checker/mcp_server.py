@@ -33,7 +33,7 @@ from typing import Any
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "ai-limit-checker"
-SERVER_VERSION = "0.10.1"
+SERVER_VERSION = "0.10.2"
 
 _initialized = False
 
