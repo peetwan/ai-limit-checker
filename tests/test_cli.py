@@ -183,6 +183,38 @@ def test_gather_no_cache_flag(monkeypatch, tmp_path):
     assert calls["claude"] == 2
 
 
+def test_gather_stale_while_error(monkeypatch, tmp_path):
+    """If a live check fails but stale cache exists, return the cached value."""
+    _patch_cache(monkeypatch, tmp_path)
+    calls = {"claude": 0}
+
+    def fake_check_claude():
+        calls["claude"] += 1
+        if calls["claude"] == 1:
+            return SAMPLE["claude"]  # success, populates cache
+        return {"status": "error", "error": "HTTP 429"}  # second call fails
+
+    monkeypatch.setattr(cli, "check_claude", fake_check_claude)
+    # First call: succeeds, writes cache
+    first = cli.gather(do_claude=True, do_antigravity=False)
+    assert first["claude"]["status"] == "ok"
+    # Second call: fails, should fall back to stale cache
+    second = cli.gather(do_claude=True, do_antigravity=False)
+    assert second["claude"]["status"] == "ok"  # from stale cache, not error
+
+
+def test_gather_no_stale_cache_returns_error(monkeypatch, tmp_path):
+    """If a live check fails and no cache exists, return the error."""
+    _patch_cache(monkeypatch, tmp_path)
+
+    def fail():
+        return {"status": "error", "error": "HTTP 429"}
+
+    monkeypatch.setattr(cli, "check_claude", fail)
+    result = cli.gather(do_claude=True, do_antigravity=False)
+    assert result["claude"]["status"] == "error"
+
+
 def test_main_json_output(monkeypatch, tmp_path, capsys):
     _patch_cache(monkeypatch, tmp_path)
     monkeypatch.setattr(cli, "check_claude", lambda: SAMPLE["claude"])

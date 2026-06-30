@@ -9,7 +9,7 @@
 [![PyPI](https://img.shields.io/pypi/v/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![Python](https://img.shields.io/pypi/pyversions/ai-limit-checker.svg)](https://pypi.org/project/ai-limit-checker/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-180%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-186%20passed-brightgreen.svg)](#testing)
 
 </div>
 
@@ -364,6 +364,10 @@ The library query flow integrates automatic token refresh to ensure checks never
 2. Proactively refreshes the OAuth access token if it has expired or is about to expire, or reactively refreshes and retries the request once if an HTTP 401 error occurs
 3. Calls the official Anthropic usage API to get 5h and 7d window data
 
+### Stale-While-Error Cache
+
+If a live API call fails (e.g. HTTP 429 from the OAuth refresh endpoint being rate-limited), the tool falls back to the most recent cached result instead of returning an error. This is critical for cron jobs and monitoring scripts: when Anthropic rate-limits token refresh requests, repeated cron calls won't hammer the endpoint further — they'll serve the last known-good usage data until the rate limit clears. The cache is never overwritten with error data.
+
 ### Antigravity CLI
 
 1. Reads OAuth credentials from Windows Credential Manager (`gemini:antigravity`) or `~/.gemini/oauth_creds.json`
@@ -478,7 +482,7 @@ python -m ai_limit_checker --json
 
 ### Testing
 
-The test suite uses `pytest` with 180 tests covering:
+The test suite uses `pytest` with 186 tests covering:
 
 - Credential parsing (Claude & Antigravity)
 - API response parsing and normalization

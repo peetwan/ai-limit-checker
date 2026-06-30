@@ -55,8 +55,15 @@ def write_cache(data: dict, now: float | None = None) -> None:
 
 
 def gather(do_claude: bool, do_antigravity: bool, use_cache: bool = True) -> dict:
-    """Collect results for the requested tools, using the cache when fresh."""
-    cache = read_cache() if use_cache else None
+    """Collect results for the requested tools, using the cache when fresh.
+
+    If a live check fails but a stale cache entry exists, return the cached
+    value instead of the error — *stale-while-error*. This prevents cron jobs
+    from hammering the OAuth refresh endpoint when Claude rate-limits it (429).
+    """
+    cache = read_cache(ttl=CACHE_TTL) if use_cache else None
+    # Stale cache: read regardless of TTL, used as fallback on error.
+    stale = read_cache(ttl=10**12) if use_cache else None  # effectively never expires
     result: dict = {}
     fresh = False
 
@@ -73,8 +80,17 @@ def gather(do_claude: bool, do_antigravity: bool, use_cache: bool = True) -> dic
             result["antigravity"] = check_antigravity()
             fresh = True
 
+    # Stale-while-error: if a fresh check failed but we have a cached value
+    # (even if stale), prefer the cached value over the error.
+    if fresh and stale:
+        for key in ("claude", "antigravity"):
+            entry = result.get(key, {})
+            if entry.get("status") == "error" and key in stale:
+                result[key] = stale[key]
+                fresh = False  # don't overwrite cache with error data
+
     if fresh:
-        merged = {k: v for k, v in (cache or {}).items() if k != _CACHE_KEY}
+        merged = {k: v for k, v in (stale or {}).items() if k != _CACHE_KEY}
         merged.update(result)
         write_cache(merged)
     return result
