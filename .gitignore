@@ -35,3 +35,6 @@ htmlcov/
 # Example output
 data-example/
 *.html
+
+# ...but keep the GitHub Pages landing page
+!docs/index.html
