@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Limit Checker — Claude Code &amp; Antigravity CLI usage from your terminal</title>
+  <meta name="description" content="A zero-dependency Python CLI to check usage limits for Claude Code and Antigravity CLI from your terminal. JSON output, watch mode, cross-platform." />
+
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="AI Limit Checker" />
+  <meta property="og:description" content="Check usage limits for Claude Code and Antigravity CLI from your terminal." />
+  <meta property="og:image" content="assets/hero.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="AI Limit Checker" />
+  <meta name="twitter:description" content="Check usage limits for Claude Code and Antigravity CLI from your terminal." />
+  <meta name="twitter:image" content="assets/hero.png" />
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>" />
+
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-soft: #161b22;
+      --border: #21262d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --teal: #2dd4bf;
+      --purple: #a371f7;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--teal); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+
+    .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+    /* Nav */
+    header.nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      background: rgba(13, 17, 23, 0.8);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .brand { font-weight: 700; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; }
+    .nav-links { display: flex; gap: 22px; font-size: 0.95rem; }
+    .nav-links a { color: var(--muted); }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+    @media (max-width: 640px) { .nav-links { display: none; } }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 56px 0 24px;
+      background:
+        radial-gradient(900px 360px at 80% -10%, rgba(163, 113, 247, 0.18), transparent),
+        radial-gradient(700px 320px at 0% 110%, rgba(45, 212, 191, 0.14), transparent);
+    }
+    .hero img.banner {
+      width: 100%;
+      max-width: 820px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    }
+    .hero h1 { font-size: 2.6rem; margin: 28px 0 8px; letter-spacing: -0.02em; }
+    .hero p.tag { font-size: 1.15rem; color: var(--muted); margin: 0 auto 24px; max-width: 620px; }
+
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 26px; }
+    .badges img { height: 20px; }
+
+    .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 22px; border-radius: 10px; font-weight: 600; font-size: 0.98rem;
+      border: 1px solid var(--border);
+    }
+    .btn-primary { background: linear-gradient(135deg, var(--teal), var(--purple)); color: #07121a; border: none; }
+    .btn-primary:hover { text-decoration: none; opacity: 0.92; }
+    .btn-ghost { background: var(--bg-soft); color: var(--text); }
+    .btn-ghost:hover { text-decoration: none; border-color: var(--teal); }
+
+    /* Sections */
+    section { padding: 48px 0; border-top: 1px solid var(--border); }
+    section h2 { font-size: 1.7rem; margin: 0 0 24px; letter-spacing: -0.01em; }
+
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+    .card {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+    .card .ico { font-size: 1.5rem; }
+    .card h3 { margin: 10px 0 6px; font-size: 1.1rem; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+    pre {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      overflow-x: auto;
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+    pre code { color: #c9d1d9; }
+    .muted { color: var(--muted); }
+    p code, li code {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1px 6px;
+      font-size: 0.88em;
+    }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+    .term-green { color: var(--green); }
+    .term-yellow { color: var(--yellow); }
+    .term-red { color: var(--red); }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0 48px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    footer a { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <span class="brand">🔍 AI Limit Checker</span>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="#usage">Usage</a>
+        <a href="#json">JSON</a>
+        <a href="https://github.com/peetwan/ai-limit-checker">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="wrap">
+      <img class="banner" src="assets/hero.png" alt="AI Limit Checker — terminal usage dashboard" />
+      <h1>AI Limit Checker</h1>
+      <p class="tag">Check usage limits for <strong>Claude Code</strong> and <strong>Antigravity CLI</strong> straight from your terminal — zero dependencies, cross-platform.</p>
+      <div class="badges">
+        <a href="https://pypi.org/project/ai-limit-checker/"><img src="https://img.shields.io/pypi/v/ai-limit-checker.svg" alt="PyPI" /></a>
+        <a href="https://pypi.org/project/ai-limit-checker/"><img src="https://img.shields.io/pypi/pyversions/ai-limit-checker.svg" alt="Python versions" /></a>
+        <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+        <img src="https://img.shields.io/badge/tests-86%20passed-brightgreen.svg" alt="Tests" />
+      </div>
+      <div class="cta">
+        <a class="btn btn-primary" href="#install">⚡ Get Started</a>
+        <a class="btn btn-ghost" href="https://github.com/peetwan/ai-limit-checker">★ View on GitHub</a>
+      </div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Features</h2>
+      <div class="features">
+        <div class="card">
+          <div class="ico">🤖</div>
+          <h3>Claude Code</h3>
+          <p>5h &amp; 7d usage windows with a Sonnet breakdown.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🛰️</div>
+          <h3>Antigravity CLI</h3>
+          <p>Per-group (Gemini / Claude+GPT) weekly &amp; five-hour limits.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🔄</div>
+          <h3>Watch Mode</h3>
+          <p>Detect when a 5h limit resets and auto-trigger a fresh window.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🧩</div>
+          <h3>JSON Output</h3>
+          <p>Structured output that AI agents and scripts can parse.</p>
+        </div>
+        <div class="card">
+          <div class="ico">📦</div>
+          <h3>Zero Dependencies</h3>
+          <p>Pure Python stdlib — no pip conflicts, fast installs.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🔒</div>
+          <h3>No Credential Leakage</h3>
+          <p>Tokens are never printed; only official endpoints are called.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Install</h2>
+      <pre><code>pip install ai-limit-checker</code></pre>
+      <p class="muted">Requires Python 3.10+. No external dependencies. Two commands are installed — <code>aichecker</code> and <code>ailimits</code> — both run the same tool.</p>
+    </div>
+  </section>
+
+  <section id="usage">
+    <div class="wrap">
+      <h2>Quick Start</h2>
+      <pre><code># Show all limits (default)
+aichecker
+
+# JSON output for AI agents / scripts
+aichecker --json
+
+# Compact one-liner (great for shell prompts / tmux status bars)
+aichecker --oneline
+
+# Check only one tool
+aichecker --claude
+aichecker --antigravity
+
+# Watch mode: poll and ping the CLI when a 5h window resets
+aichecker --watch
+aichecker --watch --once   # single check, ideal for cron</code></pre>
+
+      <h2 style="margin-top:40px;">Example Output</h2>
+      <pre><code>🔍 AI CLI Usage Checker
+2026-06-29 12:00:00
+
+════════════════════════════════════════
+  Claude Code (Max Plan)
+════════════════════════════════════════
+  ✅ Connected
+  5h Window:  1.0% used (99.0% left) → resets in 4h 56m
+  7d Window:  56.0% used (44.0% left) → resets in 2d 17h
+
+════════════════════════════════════════
+  Antigravity CLI
+════════════════════════════════════════
+  ✅ Connected
+  Tier: Google AI Ultra
+
+  Gemini Models
+    Weekly Limit:       0.0% used → resets in 6d 23h
+    Five Hour Limit:    0.0% used → resets in 4h 59m
+
+  Claude and GPT models
+    Weekly Limit:      93.0% used → resets in 2d 20h
+    Five Hour Limit:   <span class="term-red">95.0% used</span> → resets in 19m</code></pre>
+      <p class="muted">One-liner mode (<code>--oneline</code>):</p>
+      <pre><code>Claude: 1.0% (5h) ✅ | 56.0% (7d) ✅ | Antigravity: 95.0% used 🔴</code></pre>
+    </div>
+  </section>
+
+  <section id="json">
+    <div class="wrap">
+      <h2>JSON Output</h2>
+      <p class="muted">Structured JSON with all limits, remaining percentages, and reset timestamps — perfect for AI agents planning task delegation based on remaining quota.</p>
+      <pre><code>{
+  "claude": {
+    "status": "ok",
+    "plan": "max",
+    "five_hour": { "used_pct": 1.0, "remaining_pct": 99.0, "resets_at": "2026-06-29T16:31:00Z" },
+    "seven_day": { "used_pct": 56.0, "remaining_pct": 44.0, "resets_at": "2026-07-02T05:00:00Z" }
+  },
+  "antigravity": {
+    "status": "ok",
+    "tier": "Google AI Ultra",
+    "is_paid": true,
+    "groups": [ /* per-group weekly + 5h buckets */ ],
+    "highest_used_pct": 95.0
+  }
+}</code></pre>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <h2>How It Works</h2>
+      <div class="two-col">
+        <div class="card">
+          <h3>Claude Code</h3>
+          <p>Reads OAuth credentials from <code>~/.claude/.credentials.json</code> (or the macOS Keychain) and calls the official Anthropic usage API for the 5h and 7d windows.</p>
+        </div>
+        <div class="card">
+          <h3>Antigravity CLI</h3>
+          <p>Reads Google OAuth credentials (Windows Credential Manager or <code>~/.gemini/oauth_creds.json</code>) and queries the same Cloud Code endpoint the desktop app uses for grouped weekly/5h limits.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <p>
+        <a href="https://pypi.org/project/ai-limit-checker/">PyPI</a> ·
+        <a href="https://github.com/peetwan/ai-limit-checker">GitHub</a> ·
+        <a href="https://github.com/peetwan/ai-limit-checker/issues">Issues</a>
+      </p>
+      <p>MIT © <a href="https://github.com/peetwan">Peet Chanut</a></p>
+    </div>
+  </footer>
+</body>
+</html>
